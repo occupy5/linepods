@@ -22,7 +22,7 @@ Linepods 把 FoloToy AI Passport 变成一个随身划线口袋。完成一次�
 
 | 同步页 | 划线卡片 | 详情页 |
 | --- | --- | --- |
-| ![Linepods 同步页](assets/images/linepods-sync-poster.png) | ![Linepods 划线卡片](assets/images/linepods-card-poster.png) | ![Linepods 详情页](assets/images/linepods-detail-poster.png) |
+| <img src="assets/images/linepods-sync-poster.png" alt="Linepods 同步页" width="240"> | <img src="assets/images/linepods-card-poster.png" alt="Linepods 划线卡片" width="240"> | <img src="assets/images/linepods-detail-poster.png" alt="Linepods 详情页" width="240"> |
 
 ## 首次使用
 

@@ -95,9 +95,9 @@ Fusion Pixel Font 采用 SIL OFL 1.1，许可见
 | [`images/readme-hardware-specs.png`](images/readme-hardware-specs.png) | 2172 × 724，PNG RGBA | 保留为可选技术参考图，不再用于首页主视觉。于 2026-09-17 使用内置图像生成工具为本仓库生成；已根据文档中的硬件能力契约核对图中的六项标签与参数。 |
 | [`images/logo-wordmark.png`](images/logo-wordmark.png) | 1648 × 336，PNG RGBA | 从仓库原始 `images/logo.png` 中精确裁切并去除背景的黑色字标；用于中英文项目 README 的浅色主题。 |
 | [`images/logo-wordmark-dark.png`](images/logo-wordmark-dark.png) | 1648 × 336，PNG RGBA | 提取字标的白色版本；README 使用 `<picture>` 在 GitHub 深色主题下显示。 |
-| [`images/linepods-sync-poster.png`](images/linepods-sync-poster.png) | 1086 × 1448，PNG | Linepods v0.1.0 同步页宣传图，采用黑白墨水屏编辑风格。SHA-256：`7a709117dab8e28bedbe43822c76ef786fe6a7eeefc9151f159a3f62ac7947fd`。 |
-| [`images/linepods-card-poster.png`](images/linepods-card-poster.png) | 1086 × 1448，PNG | Linepods v0.1.0 划线卡片宣传图，采用黑白墨水屏编辑风格。SHA-256：`99542c50bb1c62d54dcb96f6e6ae7b1c8760ff6aa553e2e22f885866f343f98c`。 |
-| [`images/linepods-detail-poster.png`](images/linepods-detail-poster.png) | 1254 × 1254，PNG | Linepods v0.1.0 分页详情宣传图，采用黑白墨水屏编辑风格。SHA-256：`e751b12c4cc3ef18c342ff21f09cefbdeaab04cb07a4e9c9f7eadfa95b55bcaa`。 |
+| [`images/linepods-sync-poster.png`](images/linepods-sync-poster.png) | 900 × 1200，PNG | Linepods v0.1.0 同步页宣传图，采用黑白墨水屏编辑风格。SHA-256：`d38abb482d97da2ec9d7c28357e1ca9faab89ef1175ea2979e3e1ac24d94953d`。 |
+| [`images/linepods-card-poster.png`](images/linepods-card-poster.png) | 900 × 1200，PNG | Linepods v0.1.0 划线卡片宣传图，采用黑白墨水屏编辑风格。SHA-256：`94f2ace3457e03fe036ae12bc7d3068238f8a1bf89b3980e67c880a7d90e9c30`。 |
+| [`images/linepods-detail-poster.png`](images/linepods-detail-poster.png) | 900 × 1200，PNG | Linepods v0.1.0 分页详情宣传图，采用黑白墨水屏编辑风格。SHA-256：`1d31b48c684c99b38284a852806b0f750ae9657a01e184cb3caf66ad5a4d78e1`。 |
 
 三张 Linepods 宣传图于 2026-09-22 使用内置图像生成工具为本项目制作，
 以开发者提供的 AI Passport 设备照片和宣传图构图为参考。这些图片用于

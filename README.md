@@ -25,7 +25,7 @@ opening your phone.
 
 | Sync | Highlight card | Detail |
 | --- | --- | --- |
-| ![Linepods sync](assets/images/linepods-sync-poster.png) | ![Linepods highlight card](assets/images/linepods-card-poster.png) | ![Linepods detail](assets/images/linepods-detail-poster.png) |
+| <img src="assets/images/linepods-sync-poster.png" alt="Linepods sync" width="240"> | <img src="assets/images/linepods-card-poster.png" alt="Linepods highlight card" width="240"> | <img src="assets/images/linepods-detail-poster.png" alt="Linepods detail" width="240"> |
 
 ## First use
 
