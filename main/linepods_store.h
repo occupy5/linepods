@@ -4,6 +4,13 @@
 #include "linepods_client.h"
 #include <stddef.h>
 
+typedef struct {
+    linepods_book_t book;
+    size_t book_index;
+    size_t first_item_index;
+    size_t item_count;
+} linepods_book_range_t;
+
 esp_err_t linepods_store_init(void);
 esp_err_t linepods_store_sync_begin(void);
 esp_err_t linepods_store_sync_add_book(const linepods_book_t *book);
@@ -16,5 +23,10 @@ esp_err_t linepods_store_sync_commit(size_t source_book_count,
 void linepods_store_sync_abort(void);
 esp_err_t linepods_store_load_content(linepods_content_t *content);
 esp_err_t linepods_store_read_item(size_t item_index, linepods_item_t *item);
+esp_err_t linepods_store_read_book(size_t book_index,
+                                  linepods_book_range_t *range);
+esp_err_t linepods_store_find_book(const char *book_id,
+                                  linepods_book_range_t *range);
+esp_err_t linepods_store_find_quote(const char *quote_id, size_t *item_index);
 esp_err_t linepods_store_read_text(size_t item_index, char **text,
                                  size_t *length);

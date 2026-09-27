@@ -16,10 +16,13 @@ opening your phone.
   is requested.
 - Local setup from a phone over a temporary Linepods Wi-Fi hotspot.
 - Highlight synchronization using your own Weixin Read API Key.
-- Durable local caching for offline card browsing and paginated detail reading.
+- Durable local caching for offline card browsing and paginated detail reading,
+  with the last reading position restored after restart or deep sleep.
+- Three lightweight browsing paths: a random encounter, the complete library,
+  or highlights restricted to one selected book.
 - Chinese typography designed and verified for the 240 x 320 display.
-- Clear success and recovery screens, battery status, time, and low-power
-  behavior.
+- Clear synchronization summaries and offline-cache status, battery status,
+  time, and low-power behavior.
 
 ## Screens
 
@@ -40,6 +43,21 @@ opening your phone.
 
 Credentials are stored only after validation and a successful first sync. Do
 not commit API keys or Wi-Fi passwords to this repository.
+
+## Controls
+
+- On a highlight card, press Up or Down to browse and press OK for the paginated
+  detail view.
+- Long-press Down to choose Random Encounter, All Highlights, or Browse by Book.
+- In Browse by Book, use Up or Down to choose a book and press OK to enter it;
+  navigation then stays within that book.
+- Long-press Up from a card to synchronize. Long-press OK to reopen setup.
+- Long-press OK in the browsing menus or detail view to go back.
+
+Linepods saves the selected browsing scope and current highlight after a short
+delay, avoiding a Flash write on every key press. Synchronization reports how
+the item count changed; if a background refresh fails, the existing offline
+cache remains readable and the card footer shows the failure.
 
 ## Build
 

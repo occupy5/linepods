@@ -237,7 +237,8 @@ static lv_obj_t *add_metadata(lv_obj_t *page, const char *primary,
 }
 
 static void add_stats_footer(lv_obj_t *page, size_t index, size_t item_count,
-                             unsigned book_count)
+                             size_t range_start, size_t range_count,
+                             unsigned book_count, const char *status)
 {
     lv_obj_t *footer = plain_container(page);
     lv_obj_set_size(footer, lv_pct(100), 24);
@@ -247,14 +248,20 @@ static void add_stats_footer(lv_obj_t *page, size_t index, size_t item_count,
 
     char counter[24];
     snprintf(counter, sizeof(counter), "%02u / %02u",
-             (unsigned)(index + 1), (unsigned)item_count);
+             (unsigned)(index - range_start + 1), (unsigned)range_count);
     lv_obj_t *count = label(footer, counter, COLOR_ACCENT);
     lv_obj_set_size(count, 104, 24);
     lv_label_set_long_mode(count, LV_LABEL_LONG_DOT);
     lv_obj_set_style_text_align(count, LV_TEXT_ALIGN_LEFT, 0);
 
     char total[24];
-    snprintf(total, sizeof(total), "共 %u 本", book_count);
+    if (status && status[0]) {
+        snprintf(total, sizeof(total), "%s", status);
+    } else if (range_start > 0 || range_count < item_count) {
+        snprintf(total, sizeof(total), "本书 %u 条", (unsigned)range_count);
+    } else {
+        snprintf(total, sizeof(total), "共 %u 本", book_count);
+    }
     lv_obj_t *total_label = label(footer, total, COLOR_MUTED);
     lv_obj_set_size(total_label, 104, 24);
     lv_label_set_long_mode(total_label, LV_LABEL_LONG_DOT);
@@ -472,7 +479,8 @@ void linepods_ui_show_loading(const char *message)
     load_screen(screen);
 }
 
-void linepods_ui_show_sync_success(const linepods_content_t *content)
+void linepods_ui_show_sync_success(const linepods_content_t *content,
+                                  size_t previous_item_count)
 {
     if (!content) return;
     lv_obj_t *page;
@@ -502,7 +510,17 @@ void linepods_ui_show_sync_success(const linepods_content_t *content)
     lv_label_set_long_mode(counts, LV_LABEL_LONG_WRAP);
     lv_obj_set_style_text_line_space(counts, 4, 0);
 
-    lv_obj_t *note = body_label(card, "以后会自动使用这份配置", COLOR_MUTED);
+    char change[48];
+    if (content->item_count > previous_item_count) {
+        snprintf(change, sizeof(change), "新增 %u 条划线",
+                 (unsigned)(content->item_count - previous_item_count));
+    } else if (content->item_count < previous_item_count) {
+        snprintf(change, sizeof(change), "减少 %u 条划线",
+                 (unsigned)(previous_item_count - content->item_count));
+    } else {
+        snprintf(change, sizeof(change), "内容无变化");
+    }
+    lv_obj_t *note = body_label(card, change, COLOR_MUTED);
     set_single_line(note, 30);
 
     lv_obj_t *spacer = plain_container(page);
@@ -548,7 +566,9 @@ void linepods_ui_show_setup_failure(const char *message)
     load_screen(screen);
 }
 
-void linepods_ui_show_card(const linepods_content_t *content, size_t index)
+void linepods_ui_show_card(const linepods_content_t *content, size_t index,
+                          size_t range_start, size_t range_count,
+                          const char *status)
 {
     if (!content || index >= content->item_count || index != content->item_index) return;
     const linepods_item_t *item = &content->item;
@@ -567,8 +587,86 @@ void linepods_ui_show_card(const linepods_content_t *content, size_t index)
     lv_obj_t *spacer = plain_container(page);
     lv_obj_set_size(spacer, 1, 0);
     lv_obj_set_flex_grow(spacer, 1);
-    add_stats_footer(page, index, content->item_count,
-                     (unsigned)content->loaded_book_count);
+    add_stats_footer(page, index, content->item_count, range_start, range_count,
+                     (unsigned)content->loaded_book_count, status);
+    load_screen(screen);
+}
+
+void linepods_ui_show_browse_menu(size_t selected_index)
+{
+    static const char *const options[LINEPODS_BROWSE_OPTION_COUNT] = {
+        "随机遇见", "全部划线", "按书浏览",
+    };
+    static const char *const hints[LINEPODS_BROWSE_OPTION_COUNT] = {
+        "从所有书中换一句", "继续按同步顺序阅读",
+        "先选书，再看书内划线",
+    };
+    selected_index %= LINEPODS_BROWSE_OPTION_COUNT;
+    lv_obj_t *page;
+    lv_obj_t *screen = new_screen(&page);
+    lv_obj_set_style_pad_row(page, 5, 0);
+
+    lv_obj_t *title = body_label(page, "浏览方式", COLOR_INK);
+    set_single_line(title, 30);
+    for (size_t i = 0; i < LINEPODS_BROWSE_OPTION_COUNT; i++) {
+        bool selected = i == selected_index;
+        lv_obj_t *row = lv_obj_create(page);
+        lv_obj_set_size(row, lv_pct(100), 61);
+        style_panel(row, selected ? COLOR_INK : COLOR_SURFACE, 7);
+        lv_obj_set_style_border_color(row, lv_color_hex(COLOR_LINE), 0);
+        lv_obj_set_style_border_width(row, selected ? 0 : 1, 0);
+        lv_obj_set_style_pad_all(row, 7, 0);
+
+        lv_obj_t *name = body_label(row, options[i],
+                                    selected ? COLOR_PAPER : COLOR_INK);
+        lv_obj_set_size(name, lv_pct(100), 27);
+        lv_obj_set_pos(name, 0, 0);
+        lv_obj_t *hint = body_label(row, hints[i],
+                                    selected ? COLOR_PAPER_BACK : COLOR_MUTED);
+        lv_obj_set_size(hint, lv_pct(100), 25);
+        lv_obj_set_pos(hint, 0, 27);
+        lv_label_set_long_mode(hint, LV_LABEL_LONG_DOT);
+    }
+    add_footer(page, "上下选择　确定进入　长按确定返回");
+    load_screen(screen);
+}
+
+void linepods_ui_show_book_picker(const linepods_book_range_t *range,
+                                 size_t book_count)
+{
+    if (!range || book_count == 0) return;
+    lv_obj_t *page;
+    lv_obj_t *screen = new_screen(&page);
+    lv_obj_t *title = body_label(page, "选择一本书", COLOR_INK);
+    set_single_line(title, 30);
+
+    lv_obj_t *card = lv_obj_create(page);
+    lv_obj_set_size(card, lv_pct(100), 176);
+    style_panel(card, COLOR_PAPER, 8);
+    lv_obj_set_style_border_color(card, lv_color_hex(COLOR_LINE), 0);
+    lv_obj_set_style_border_width(card, 1, 0);
+    lv_obj_set_style_pad_all(card, 13, 0);
+    lv_obj_set_style_pad_row(card, 5, 0);
+    lv_obj_set_flex_flow(card, LV_FLEX_FLOW_COLUMN);
+
+    lv_obj_t *book_title = body_label(card, range->book.title, COLOR_INK);
+    lv_obj_set_size(book_title, lv_pct(100), 62);
+    lv_label_set_long_mode(book_title, LV_LABEL_LONG_WRAP);
+    lv_obj_t *author = body_label(card, range->book.author, COLOR_MUTED);
+    set_single_line(author, 30);
+    char count[40];
+    snprintf(count, sizeof(count), "共 %u 条划线",
+             (unsigned)range->item_count);
+    lv_obj_t *quote_count = body_label(card, count, COLOR_ACCENT);
+    set_single_line(quote_count, 30);
+
+    char position[32];
+    snprintf(position, sizeof(position), "%02u / %02u",
+             (unsigned)(range->book_index + 1), (unsigned)book_count);
+    lv_obj_t *counter = label(page, position, COLOR_MUTED);
+    set_single_line(counter, 22);
+    lv_obj_set_style_text_align(counter, LV_TEXT_ALIGN_CENTER, 0);
+    add_footer(page, "上下切换　确定进入　长按确定返回");
     load_screen(screen);
 }
 
@@ -580,7 +678,8 @@ bool linepods_ui_prepare_detail_pager(const char *text, linepods_pager_t *pager)
 
 void linepods_ui_show_detail(const linepods_content_t *content, size_t index,
                            const char *text, const linepods_pager_t *pager,
-                           size_t page_index)
+                           size_t page_index, size_t range_start,
+                           size_t range_count)
 {
     if (!content || index >= content->item_count || index != content->item_index
         || !text || !pager) return;
@@ -621,7 +720,7 @@ void linepods_ui_show_detail(const linepods_content_t *content, size_t index,
     add_separator(reader, 12, 201, DETAIL_TEXT_WIDTH);
     char counter[24];
     snprintf(counter, sizeof(counter), "%02u/%02u",
-             (unsigned)(index + 1), (unsigned)content->item_count);
+             (unsigned)(index - range_start + 1), (unsigned)range_count);
     lv_obj_t *count = label(reader, counter, COLOR_ACCENT);
     lv_obj_set_size(count, 54, 20);
     lv_obj_set_pos(count, 12, 207);

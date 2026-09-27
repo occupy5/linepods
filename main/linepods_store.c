@@ -776,6 +776,113 @@ static bool read_quote_at(FILE *file, const library_header_t *header,
     return valid;
 }
 
+/* Book selection is intentionally a forward record walk.  The on-disk writer
+ * groups every book with its quotes, so this obtains a stable contiguous item
+ * range without allocating a RAM-side catalog on the no-PSRAM target. */
+static esp_err_t scan_book(const char *book_id, size_t requested_index,
+                           bool match_id, linepods_book_range_t *range)
+{
+    if (!range || (match_id && (!book_id || !book_id[0]))) {
+        return ESP_ERR_INVALID_ARG;
+    }
+    FILE *file = NULL;
+    library_header_t header;
+    esp_err_t error = open_active(&file, &header);
+    if (error != ESP_OK) return error;
+
+    uint32_t position = sizeof(header);
+    size_t book_index = 0;
+    size_t quote_index = 0;
+    bool selected = false;
+    *range = (linepods_book_range_t) {0};
+
+    while (position < header.index_offset) {
+        library_record_t record;
+        if (!seek_to(file, position) || !read_exact(file, &record, sizeof(record))
+            || record.record_size < sizeof(record)
+            || (uint64_t)position + record.record_size > header.index_offset) {
+            error = ESP_FAIL;
+            break;
+        }
+        if (record.kind == LINEPODS_RECORD_BOOK) {
+            if (selected) {
+                error = range->item_count > 0 ? ESP_OK : ESP_ERR_NOT_FOUND;
+                break;
+            }
+            library_book_t stored;
+            if (!read_book_at(file, &header, position, &stored)) {
+                error = ESP_FAIL;
+                break;
+            }
+            bool matches = match_id ? strcmp(stored.book_id, book_id) == 0
+                                    : book_index == requested_index;
+            if (matches) {
+                range->book_index = book_index;
+                range->first_item_index = quote_index;
+                memcpy(range->book.book_id, stored.book_id,
+                       sizeof(range->book.book_id));
+                memcpy(range->book.title, stored.title,
+                       sizeof(range->book.title));
+                memcpy(range->book.author, stored.author,
+                       sizeof(range->book.author));
+                range->book.sync_sort = stored.sync_sort;
+                range->book.note_count = stored.note_count;
+                selected = true;
+            }
+            book_index++;
+        } else if (record.kind == LINEPODS_RECORD_QUOTE) {
+            if (selected) range->item_count++;
+            quote_index++;
+        } else {
+            error = ESP_FAIL;
+            break;
+        }
+        position += record.record_size;
+        error = ESP_ERR_NOT_FOUND;
+    }
+    if (position >= header.index_offset && selected && range->item_count > 0) {
+        error = ESP_OK;
+    }
+    fclose(file);
+    return error;
+}
+
+esp_err_t linepods_store_read_book(size_t book_index,
+                                  linepods_book_range_t *range)
+{
+    return scan_book(NULL, book_index, false, range);
+}
+
+esp_err_t linepods_store_find_book(const char *book_id,
+                                  linepods_book_range_t *range)
+{
+    return scan_book(book_id, 0, true, range);
+}
+
+esp_err_t linepods_store_find_quote(const char *quote_id, size_t *item_index)
+{
+    if (!quote_id || !quote_id[0] || !item_index) return ESP_ERR_INVALID_ARG;
+    FILE *file = NULL;
+    library_header_t header;
+    esp_err_t error = open_active(&file, &header);
+    if (error != ESP_OK) return error;
+    error = ESP_ERR_NOT_FOUND;
+    for (size_t index = 0; index < header.item_count; index++) {
+        library_quote_t quote;
+        if (!read_quote_at(file, &header, index, &quote, NULL)) {
+            error = ESP_FAIL;
+            break;
+        }
+        if (strcmp(quote.quote_id, quote_id) == 0) {
+            *item_index = index;
+            error = ESP_OK;
+            break;
+        }
+    }
+    fclose(file);
+    return error;
+}
+
 esp_err_t linepods_store_read_item(size_t item_index, linepods_item_t *item)
 {
     if (!item) return ESP_ERR_INVALID_ARG;

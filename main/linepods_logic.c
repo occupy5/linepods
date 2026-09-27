@@ -9,6 +9,7 @@ void linepods_logic_init(linepods_logic_t *logic)
         .view = LINEPODS_VIEW_WELCOME,
         .quote_count = 0,
         .quote_index = 0,
+        .browse_mode = LINEPODS_BROWSE_ALL,
     };
 }
 
@@ -17,11 +18,72 @@ void linepods_logic_set_quotes(linepods_logic_t *logic, size_t quote_count)
     if (!logic) return;
     logic->quote_count = quote_count;
     logic->quote_index = 0;
+    logic->range_start = 0;
+    logic->range_count = quote_count;
     logic->detail_page_index = 0;
     logic->detail_page_count = 0;
     logic->font_compare_index = 0;
+    logic->browse_menu_index = 0;
+    logic->book_index = 0;
+    logic->browse_mode = LINEPODS_BROWSE_ALL;
     logic->detail_open_from_end = false;
     logic->view = quote_count > 0 ? LINEPODS_VIEW_CARD : LINEPODS_VIEW_ERROR;
+}
+
+void linepods_logic_set_all_scope(linepods_logic_t *logic)
+{
+    if (!logic) return;
+    logic->browse_mode = LINEPODS_BROWSE_ALL;
+    logic->range_start = 0;
+    logic->range_count = logic->quote_count;
+    if (logic->quote_index >= logic->quote_count) logic->quote_index = 0;
+}
+
+void linepods_logic_set_book_scope(linepods_logic_t *logic, size_t range_start,
+                                  size_t range_count, size_t book_index)
+{
+    if (!logic || range_count == 0 || range_start >= logic->quote_count
+        || range_count > logic->quote_count - range_start) {
+        return;
+    }
+    logic->browse_mode = LINEPODS_BROWSE_BOOK;
+    logic->range_start = range_start;
+    logic->range_count = range_count;
+    logic->book_index = book_index;
+    logic->quote_index = range_start;
+}
+
+void linepods_logic_set_book_count(linepods_logic_t *logic, size_t book_count)
+{
+    if (!logic) return;
+    logic->book_count = book_count;
+    if (book_count == 0) logic->book_index = 0;
+    else if (logic->book_index >= book_count) logic->book_index = book_count - 1;
+}
+
+bool linepods_logic_set_quote_index(linepods_logic_t *logic, size_t quote_index)
+{
+    if (!logic || quote_index >= logic->quote_count
+        || quote_index < logic->range_start
+        || quote_index >= logic->range_start + logic->range_count) {
+        return false;
+    }
+    logic->quote_index = quote_index;
+    return true;
+}
+
+size_t linepods_logic_select_random(linepods_logic_t *logic, uint32_t random_value)
+{
+    if (!logic || logic->quote_count == 0) return 0;
+    linepods_logic_set_all_scope(logic);
+    if (logic->range_count == 1) {
+        logic->quote_index = 0;
+        return 0;
+    }
+    size_t candidate = random_value % (logic->range_count - 1);
+    if (candidate >= logic->quote_index) candidate++;
+    logic->quote_index = candidate;
+    return candidate;
 }
 
 void linepods_logic_set_view(linepods_logic_t *logic, linepods_view_t view)
@@ -48,12 +110,15 @@ linepods_action_t linepods_logic_handle(linepods_logic_t *logic, linepods_input_
 
     if (logic->view == LINEPODS_VIEW_CARD && logic->quote_count > 0) {
         if (input == LINEPODS_INPUT_UP_CLICK) {
-            logic->quote_index = (logic->quote_index + logic->quote_count - 1)
-                               % logic->quote_count;
+            size_t offset = logic->quote_index - logic->range_start;
+            offset = (offset + logic->range_count - 1) % logic->range_count;
+            logic->quote_index = logic->range_start + offset;
             return LINEPODS_ACTION_SHOW_CARD;
         }
         if (input == LINEPODS_INPUT_DOWN_CLICK) {
-            logic->quote_index = (logic->quote_index + 1) % logic->quote_count;
+            size_t offset = logic->quote_index - logic->range_start;
+            logic->quote_index = logic->range_start
+                               + (offset + 1) % logic->range_count;
             return LINEPODS_ACTION_SHOW_CARD;
         }
         if (input == LINEPODS_INPUT_OK_CLICK) {
@@ -66,9 +131,9 @@ linepods_action_t linepods_logic_handle(linepods_logic_t *logic, linepods_input_
         if (input == LINEPODS_INPUT_UP_LONG) return LINEPODS_ACTION_SYNC;
         if (input == LINEPODS_INPUT_OK_LONG) return LINEPODS_ACTION_START_SETUP;
         if (input == LINEPODS_INPUT_DOWN_LONG) {
-            logic->view = LINEPODS_VIEW_FONT_COMPARE;
-            logic->font_compare_index = 0;
-            return LINEPODS_ACTION_SHOW_FONT_COMPARE;
+            logic->view = LINEPODS_VIEW_BROWSE_MENU;
+            logic->browse_menu_index = 0;
+            return LINEPODS_ACTION_SHOW_BROWSE_MENU;
         }
     }
 
@@ -78,8 +143,9 @@ linepods_action_t linepods_logic_handle(linepods_logic_t *logic, linepods_input_
                 logic->detail_page_index--;
                 return LINEPODS_ACTION_SHOW_DETAIL;
             }
-            logic->quote_index = (logic->quote_index + logic->quote_count - 1)
-                               % logic->quote_count;
+            size_t offset = logic->quote_index - logic->range_start;
+            offset = (offset + logic->range_count - 1) % logic->range_count;
+            logic->quote_index = logic->range_start + offset;
             logic->detail_page_count = 0;
             logic->detail_open_from_end = true;
             return LINEPODS_ACTION_SHOW_DETAIL_NEW_ITEM;
@@ -89,7 +155,9 @@ linepods_action_t linepods_logic_handle(linepods_logic_t *logic, linepods_input_
                 logic->detail_page_index++;
                 return LINEPODS_ACTION_SHOW_DETAIL;
             }
-            logic->quote_index = (logic->quote_index + 1) % logic->quote_count;
+            size_t offset = logic->quote_index - logic->range_start;
+            logic->quote_index = logic->range_start
+                               + (offset + 1) % logic->range_count;
             logic->detail_page_index = 0;
             logic->detail_page_count = 0;
             logic->detail_open_from_end = false;
@@ -101,6 +169,56 @@ linepods_action_t linepods_logic_handle(linepods_logic_t *logic, linepods_input_
             logic->detail_page_count = 0;
             logic->detail_open_from_end = false;
             return LINEPODS_ACTION_SHOW_CARD;
+        }
+    }
+
+    if (logic->view == LINEPODS_VIEW_BROWSE_MENU) {
+        if (input == LINEPODS_INPUT_UP_CLICK) {
+            logic->browse_menu_index =
+                (logic->browse_menu_index + LINEPODS_BROWSE_OPTION_COUNT - 1)
+                % LINEPODS_BROWSE_OPTION_COUNT;
+            return LINEPODS_ACTION_SHOW_BROWSE_MENU;
+        }
+        if (input == LINEPODS_INPUT_DOWN_CLICK) {
+            logic->browse_menu_index =
+                (logic->browse_menu_index + 1) % LINEPODS_BROWSE_OPTION_COUNT;
+            return LINEPODS_ACTION_SHOW_BROWSE_MENU;
+        }
+        if (input == LINEPODS_INPUT_OK_CLICK) {
+            if (logic->browse_menu_index == 0) {
+                logic->view = LINEPODS_VIEW_CARD;
+                return LINEPODS_ACTION_SELECT_RANDOM;
+            }
+            if (logic->browse_menu_index == 1) {
+                logic->view = LINEPODS_VIEW_CARD;
+                return LINEPODS_ACTION_SELECT_ALL;
+            }
+            logic->view = LINEPODS_VIEW_BOOK_PICKER;
+            return LINEPODS_ACTION_SHOW_BOOK_PICKER;
+        }
+        if (input == LINEPODS_INPUT_OK_LONG) {
+            logic->view = LINEPODS_VIEW_CARD;
+            return LINEPODS_ACTION_SHOW_CARD;
+        }
+    }
+
+    if (logic->view == LINEPODS_VIEW_BOOK_PICKER && logic->book_count > 0) {
+        if (input == LINEPODS_INPUT_UP_CLICK) {
+            logic->book_index = (logic->book_index + logic->book_count - 1)
+                              % logic->book_count;
+            return LINEPODS_ACTION_SHOW_BOOK_PICKER;
+        }
+        if (input == LINEPODS_INPUT_DOWN_CLICK) {
+            logic->book_index = (logic->book_index + 1) % logic->book_count;
+            return LINEPODS_ACTION_SHOW_BOOK_PICKER;
+        }
+        if (input == LINEPODS_INPUT_OK_CLICK) {
+            logic->view = LINEPODS_VIEW_CARD;
+            return LINEPODS_ACTION_SELECT_BOOK;
+        }
+        if (input == LINEPODS_INPUT_OK_LONG) {
+            logic->view = LINEPODS_VIEW_BROWSE_MENU;
+            return LINEPODS_ACTION_SHOW_BROWSE_MENU;
         }
     }
 

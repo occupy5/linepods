@@ -6,6 +6,7 @@
 #include "bsp_pins.h"
 #include "driver/gpio.h"
 #include "esp_log.h"
+#include "esp_random.h"
 #include "esp_sleep.h"
 #include "esp_system.h"
 #include "esp_timer.h"
@@ -40,6 +41,7 @@
 #define IDLE_POLL_MS 1000
 #define AUTO_SYNC_TTL_SECONDS (12u * 60u * 60u)
 #define RADIO_SUSPEND_GRACE_MS (10u * 1000u)
+#define READER_STATE_SAVE_DELAY_MS 2000
 
 /* Backlight fractions for each power phase. The panel stays initialized; only
  * the LEDC duty changes, so waking is a single register write. */
@@ -82,6 +84,8 @@ typedef struct {
         struct {
             bool provisioned;
             bool had_cache;
+            bool show_success;
+            size_t previous_item_count;
             char message[160];
         } fetch;
     } data;
@@ -91,6 +95,8 @@ typedef struct {
     linepods_config_t config;
     bool provisioned;
     bool had_cache;
+    bool show_success;
+    size_t previous_item_count;
 } fetch_context_t;
 
 static QueueHandle_t s_app_queue;
@@ -114,11 +120,71 @@ static linepods_config_t s_retry_config;
 static bool s_retry_is_provisioned;
 static linepods_content_t s_content;
 static linepods_logic_t s_logic;
+static linepods_book_range_t s_book_range;
+static linepods_reader_state_t s_reader_state;
+static bool s_reader_state_dirty;
+static uint64_t s_reader_state_save_due_ms;
+static char s_card_status[24];
 static char *s_detail_text;
 static size_t s_detail_item_index = SIZE_MAX;
 static linepods_pager_t s_detail_pager;
 
 static uint64_t now_ms(void);
+
+static void set_card_status(const char *status)
+{
+    snprintf(s_card_status, sizeof(s_card_status), "%s", status ? status : "");
+}
+
+static void remember_reader_position(void)
+{
+    if (s_content.item_index != s_logic.quote_index) return;
+    linepods_reader_state_t next = {
+        .browse_mode = (uint8_t)s_logic.browse_mode,
+    };
+    snprintf(next.quote_id, sizeof(next.quote_id), "%s",
+             s_content.item.quote.quote_id);
+    if (s_logic.browse_mode == LINEPODS_BROWSE_BOOK) {
+        snprintf(next.book_id, sizeof(next.book_id), "%s",
+                 s_content.item.book.book_id);
+    }
+    if (memcmp(&next, &s_reader_state, sizeof(next)) != 0) {
+        s_reader_state = next;
+        s_reader_state_dirty = true;
+        s_reader_state_save_due_ms = now_ms() + READER_STATE_SAVE_DELAY_MS;
+    }
+}
+
+static void flush_reader_position(void)
+{
+    if (!s_reader_state_dirty || !s_reader_state.quote_id[0]) return;
+    esp_err_t error = linepods_config_save_reader_state(&s_reader_state);
+    if (error == ESP_OK) {
+        s_reader_state_dirty = false;
+        s_reader_state_save_due_ms = 0;
+    } else {
+        ESP_LOGW(TAG, "Cannot save reader position: %s", esp_err_to_name(error));
+    }
+}
+
+static void restore_reader_position(void)
+{
+    linepods_logic_set_all_scope(&s_logic);
+    linepods_logic_set_book_count(&s_logic, s_content.loaded_book_count);
+    if (s_reader_state.browse_mode == LINEPODS_BROWSE_BOOK
+        && s_reader_state.book_id[0]
+        && linepods_store_find_book(s_reader_state.book_id, &s_book_range) == ESP_OK) {
+        linepods_logic_set_book_scope(&s_logic, s_book_range.first_item_index,
+                                      s_book_range.item_count,
+                                      s_book_range.book_index);
+    }
+    size_t restored_index = 0;
+    if (s_reader_state.quote_id[0]
+        && linepods_store_find_quote(s_reader_state.quote_id, &restored_index)
+               == ESP_OK) {
+        (void)linepods_logic_set_quote_index(&s_logic, restored_index);
+    }
+}
 
 static void release_detail(void)
 {
@@ -173,7 +239,28 @@ static void ui_card(void)
         s_content.item_index = s_logic.quote_index;
     }
     if (!bsp_lvgl_lock(500)) return;
-    linepods_ui_show_card(&s_content, s_logic.quote_index);
+    linepods_ui_show_card(&s_content, s_logic.quote_index, s_logic.range_start,
+                         s_logic.range_count, s_card_status);
+    bsp_lvgl_unlock();
+    remember_reader_position();
+}
+
+static void ui_browse_menu(void)
+{
+    if (!bsp_lvgl_lock(500)) return;
+    linepods_ui_show_browse_menu(s_logic.browse_menu_index);
+    bsp_lvgl_unlock();
+}
+
+static void ui_book_picker(void)
+{
+    esp_err_t error = linepods_store_read_book(s_logic.book_index, &s_book_range);
+    if (error != ESP_OK) {
+        ui_error("无法读取书籍列表");
+        return;
+    }
+    if (!bsp_lvgl_lock(500)) return;
+    linepods_ui_show_book_picker(&s_book_range, s_logic.book_count);
     bsp_lvgl_unlock();
 }
 
@@ -182,7 +269,8 @@ static void ui_detail_page(void)
     if (!s_detail_text || s_detail_item_index != s_logic.quote_index) return;
     if (!bsp_lvgl_lock(500)) return;
     linepods_ui_show_detail(&s_content, s_logic.quote_index, s_detail_text,
-                          &s_detail_pager, s_logic.detail_page_index);
+                          &s_detail_pager, s_logic.detail_page_index,
+                          s_logic.range_start, s_logic.range_count);
     bsp_lvgl_unlock();
 }
 
@@ -226,7 +314,8 @@ static bool open_detail_item(void)
     }
     linepods_logic_detail_ready(&s_logic, s_detail_pager.page_count);
     linepods_ui_show_detail(&s_content, s_logic.quote_index, s_detail_text,
-                          &s_detail_pager, s_logic.detail_page_index);
+                          &s_detail_pager, s_logic.detail_page_index,
+                          s_logic.range_start, s_logic.range_count);
     bsp_lvgl_unlock();
     ESP_LOGI(TAG, "Opened quote %u: bytes=%u pages=%u",
              (unsigned)s_logic.quote_index, (unsigned)length,
@@ -241,6 +330,8 @@ static void fetch_task(void *argument)
         .type = APP_EVENT_FETCH_ERROR,
         .data.fetch.provisioned = context->provisioned,
         .data.fetch.had_cache = context->had_cache,
+        .data.fetch.show_success = context->show_success,
+        .data.fetch.previous_item_count = context->previous_item_count,
     };
 
     esp_err_t error = linepods_network_connect(&context->config, 20000);
@@ -259,7 +350,7 @@ static void fetch_task(void *argument)
 }
 
 static esp_err_t start_fetch(const linepods_config_t *config, bool provisioned,
-                             bool had_cache)
+                             bool had_cache, bool show_success)
 {
     if (s_fetching) return ESP_ERR_INVALID_STATE;
     fetch_context_t *context = calloc(1, sizeof(*context));
@@ -267,6 +358,8 @@ static esp_err_t start_fetch(const linepods_config_t *config, bool provisioned,
     context->config = *config;
     context->provisioned = provisioned;
     context->had_cache = had_cache;
+    context->show_success = show_success;
+    context->previous_item_count = s_content.item_count;
     s_retry_config = *config;
     s_retry_is_provisioned = provisioned;
     s_radio_suspend_due_ms = 0;
@@ -353,6 +446,34 @@ static void handle_input(const app_event_t *event)
     case LINEPODS_ACTION_SHOW_DETAIL_NEW_ITEM:
         (void)open_detail_item();
         break;
+    case LINEPODS_ACTION_SHOW_BROWSE_MENU:
+        ui_browse_menu();
+        break;
+    case LINEPODS_ACTION_SHOW_BOOK_PICKER:
+        ui_book_picker();
+        break;
+    case LINEPODS_ACTION_SELECT_RANDOM:
+        (void)linepods_logic_select_random(&s_logic, esp_random());
+        set_card_status("随机");
+        ui_card();
+        break;
+    case LINEPODS_ACTION_SELECT_ALL:
+        linepods_logic_set_all_scope(&s_logic);
+        set_card_status("");
+        ui_card();
+        break;
+    case LINEPODS_ACTION_SELECT_BOOK:
+        if (linepods_store_read_book(s_logic.book_index, &s_book_range) == ESP_OK) {
+            linepods_logic_set_book_scope(&s_logic,
+                                          s_book_range.first_item_index,
+                                          s_book_range.item_count,
+                                          s_book_range.book_index);
+            set_card_status("");
+            ui_card();
+        } else {
+            ui_error("无法打开这本书的划线");
+        }
+        break;
     case LINEPODS_ACTION_SHOW_FONT_COMPARE:
         if (bsp_lvgl_lock(500)) {
             linepods_ui_show_font_compare(s_logic.font_compare_index);
@@ -363,7 +484,7 @@ static void handle_input(const app_event_t *event)
         if (!s_fetching) {
             ui_loading("正在同步全部书籍与划线…");
             if (start_fetch(&s_active_config, false,
-                            s_content.item_count > 0) != ESP_OK) {
+                            s_content.item_count > 0, true) != ESP_OK) {
                 ui_card();
             }
         }
@@ -372,7 +493,7 @@ static void handle_input(const app_event_t *event)
         if (!s_fetching) {
             ui_loading("正在重新连接并取回摘录…");
             if (start_fetch(&s_retry_config, s_retry_is_provisioned,
-                            s_content.item_count > 0) != ESP_OK) {
+                            s_content.item_count > 0, true) != ESP_OK) {
                 ui_error("没有足够内存开始同步，请重新启动设备");
             }
         }
@@ -395,7 +516,7 @@ static void handle_event(const app_event_t *event)
         s_activity_pending = true;  /* show the verification progress */
         if (!s_fetching) {
             ui_loading("正在验证 Wi-Fi 和微信读书 Key…");
-            if (start_fetch(&event->data.config, true, false) != ESP_OK) {
+            if (start_fetch(&event->data.config, true, false, true) != ESP_OK) {
                 ui_error("没有足够内存开始验证，请稍后重试");
             }
         }
@@ -417,12 +538,15 @@ static void handle_event(const app_event_t *event)
         }
         linepods_network_stop_provisioning();
         linepods_logic_set_quotes(&s_logic, s_content.item_count);
+        restore_reader_position();
+        set_card_status("同步完成");
         if (s_content.item_count == 0) {
             ui_error("连接成功，但还没有找到划线。请先在微信读书中划线，再按确定重试。");
-        } else if (event->data.fetch.provisioned) {
+        } else if (event->data.fetch.show_success) {
             linepods_logic_set_view(&s_logic, LINEPODS_VIEW_SYNC_SUCCESS);
             if (bsp_lvgl_lock(500)) {
-                linepods_ui_show_sync_success(&s_content);
+                linepods_ui_show_sync_success(
+                    &s_content, event->data.fetch.previous_item_count);
                 bsp_lvgl_unlock();
             }
         } else {
@@ -436,6 +560,7 @@ static void handle_event(const app_event_t *event)
         if (event->data.fetch.had_cache && s_content.item_count > 0) {
             ESP_LOGW(TAG, "Background sync failed; keeping cache: %s",
                      event->data.fetch.message);
+            set_card_status("同步失败");
             ui_card();
         } else if (event->data.fetch.provisioned) {
             ui_setup_failure(event->data.fetch.message[0]
@@ -493,6 +618,7 @@ static void apply_power_state(linepods_power_state_t state)
 static void enter_deep_sleep(void)
 {
     ESP_LOGI(TAG, "Idle timeout reached; entering deep sleep (wake on any key)");
+    flush_reader_position();
     (void)linepods_network_suspend_radio();
     bsp_display_backlight(BACKLIGHT_OFF);
 
@@ -562,20 +688,32 @@ static void app_task(void *argument)
     linepods_power_policy_init(&s_power, &s_power_config, now_ms());
     esp_err_t loaded = linepods_config_load(&s_active_config);
     if (loaded == ESP_OK) {
-        bool has_cache = linepods_store_load_content(&s_content) == ESP_OK;
-        if (has_cache) {
-            linepods_logic_set_quotes(&s_logic, s_content.item_count);
-            ui_card();
-        } else {
-            ui_loading("正在同步全部书籍与划线…");
+        if (linepods_config_load_reader_state(&s_reader_state) != ESP_OK) {
+            s_reader_state = (linepods_reader_state_t) {0};
         }
-        time_t system_time = time(NULL);
         time_t last_sync = 0;
         esp_err_t timestamp_error = linepods_config_load_last_sync(&last_sync);
         if (timestamp_error != ESP_OK) {
             ESP_LOGW(TAG, "Cannot load last sync time: %s",
                      esp_err_to_name(timestamp_error));
         }
+        if (linepods_status_time_valid(last_sync)) {
+            struct tm local = {0};
+            localtime_r(&last_sync, &local);
+            snprintf(s_card_status, sizeof(s_card_status), "上次 %02d:%02d",
+                     local.tm_hour, local.tm_min);
+        } else {
+            set_card_status("缓存可用");
+        }
+        bool has_cache = linepods_store_load_content(&s_content) == ESP_OK;
+        if (has_cache) {
+            linepods_logic_set_quotes(&s_logic, s_content.item_count);
+            restore_reader_position();
+            ui_card();
+        } else {
+            ui_loading("正在同步全部书籍与划线…");
+        }
+        time_t system_time = time(NULL);
         linepods_sync_decision_t sync_decision = linepods_sync_policy_decide(
             has_cache, s_deep_sleep_wakeup,
             linepods_status_time_valid(system_time), (int64_t)system_time,
@@ -586,7 +724,7 @@ static void app_task(void *argument)
                  s_deep_sleep_wakeup ? "deep-sleep" : "cold",
                  has_cache ? "yes" : "no");
         if (auto_sync
-            && start_fetch(&s_active_config, false, has_cache) != ESP_OK) {
+            && start_fetch(&s_active_config, false, has_cache, false) != ESP_OK) {
             if (has_cache) {
                 ESP_LOGW(TAG, "Cannot start background sync; keeping cache");
                 ui_card();
@@ -621,6 +759,10 @@ static void app_task(void *argument)
         bool busy = s_fetching;
 
         uint64_t current_ms = now_ms();
+        if (s_reader_state_dirty && s_reader_state_save_due_ms != 0
+            && current_ms >= s_reader_state_save_due_ms && !busy) {
+            flush_reader_position();
+        }
         if (s_radio_suspend_due_ms != 0 && current_ms >= s_radio_suspend_due_ms
             && !busy && !provisioning) {
             if (s_record_sync_timestamp) {

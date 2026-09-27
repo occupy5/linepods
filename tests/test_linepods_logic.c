@@ -82,27 +82,56 @@ static void test_error_actions(void)
     assert(linepods_logic_handle(&logic, LINEPODS_INPUT_UP_LONG) == LINEPODS_ACTION_START_SETUP);
 }
 
-static void test_font_compare_navigation(void)
+static void test_browse_menu_and_book_picker(void)
 {
     linepods_logic_t logic;
     linepods_logic_init(&logic);
     linepods_logic_set_quotes(&logic, 3);
+    linepods_logic_set_book_count(&logic, 2);
 
     assert(linepods_logic_handle(&logic, LINEPODS_INPUT_DOWN_LONG)
-           == LINEPODS_ACTION_SHOW_FONT_COMPARE);
-    assert(logic.view == LINEPODS_VIEW_FONT_COMPARE);
-    assert(logic.font_compare_index == 0);
+           == LINEPODS_ACTION_SHOW_BROWSE_MENU);
+    assert(logic.view == LINEPODS_VIEW_BROWSE_MENU);
+    assert(logic.browse_menu_index == 0);
 
     assert(linepods_logic_handle(&logic, LINEPODS_INPUT_UP_CLICK)
-           == LINEPODS_ACTION_SHOW_FONT_COMPARE);
-    assert(logic.font_compare_index == 3);
+           == LINEPODS_ACTION_SHOW_BROWSE_MENU);
+    assert(logic.browse_menu_index == 2);
+    assert(linepods_logic_handle(&logic, LINEPODS_INPUT_OK_CLICK)
+           == LINEPODS_ACTION_SHOW_BOOK_PICKER);
+    assert(logic.view == LINEPODS_VIEW_BOOK_PICKER);
     assert(linepods_logic_handle(&logic, LINEPODS_INPUT_DOWN_CLICK)
-           == LINEPODS_ACTION_SHOW_FONT_COMPARE);
-    assert(logic.font_compare_index == 0);
+           == LINEPODS_ACTION_SHOW_BOOK_PICKER);
+    assert(logic.book_index == 1);
+    assert(linepods_logic_handle(&logic, LINEPODS_INPUT_OK_CLICK)
+           == LINEPODS_ACTION_SELECT_BOOK);
 
+    logic.view = LINEPODS_VIEW_BOOK_PICKER;
     assert(linepods_logic_handle(&logic, LINEPODS_INPUT_OK_LONG)
+           == LINEPODS_ACTION_SHOW_BROWSE_MENU);
+    assert(logic.view == LINEPODS_VIEW_BROWSE_MENU);
+}
+
+static void test_book_scope_wraps_and_random_avoids_current(void)
+{
+    linepods_logic_t logic;
+    linepods_logic_init(&logic);
+    linepods_logic_set_quotes(&logic, 6);
+    linepods_logic_set_book_scope(&logic, 2, 3, 1);
+    assert(logic.quote_index == 2);
+    assert(linepods_logic_handle(&logic, LINEPODS_INPUT_UP_CLICK)
            == LINEPODS_ACTION_SHOW_CARD);
-    assert(logic.view == LINEPODS_VIEW_CARD);
+    assert(logic.quote_index == 4);
+    assert(linepods_logic_handle(&logic, LINEPODS_INPUT_DOWN_CLICK)
+           == LINEPODS_ACTION_SHOW_CARD);
+    assert(logic.quote_index == 2);
+    assert(!linepods_logic_set_quote_index(&logic, 1));
+    assert(linepods_logic_set_quote_index(&logic, 3));
+
+    size_t random_index = linepods_logic_select_random(&logic, 2);
+    assert(logic.browse_mode == LINEPODS_BROWSE_ALL);
+    assert(random_index < 6);
+    assert(random_index != 3);
 }
 
 static void test_card_long_press_actions(void)
@@ -135,7 +164,8 @@ int main(void)
     test_card_navigation_wraps();
     test_detail_pages_then_moves_between_quotes();
     test_error_actions();
-    test_font_compare_navigation();
+    test_browse_menu_and_book_picker();
+    test_book_scope_wraps_and_random_avoids_current();
     test_card_long_press_actions();
     test_utf8_copy_keeps_codepoints_intact();
     return 0;

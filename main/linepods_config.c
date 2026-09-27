@@ -97,6 +97,43 @@ esp_err_t linepods_config_save_last_sync(time_t timestamp)
     return error;
 }
 
+esp_err_t linepods_config_load_reader_state(linepods_reader_state_t *state)
+{
+    if (!state) return ESP_ERR_INVALID_ARG;
+    *state = (linepods_reader_state_t) {0};
+    nvs_handle_t handle;
+    esp_err_t error = nvs_open(LINEPODS_CONFIG_NAMESPACE, NVS_READONLY, &handle);
+    if (error != ESP_OK) return error;
+    error = nvs_get_u8(handle, "read_mode", &state->browse_mode);
+    if (error == ESP_OK) {
+        error = read_string(handle, "read_book", state->book_id,
+                            sizeof(state->book_id));
+    }
+    if (error == ESP_OK) {
+        error = read_string(handle, "read_quote", state->quote_id,
+                            sizeof(state->quote_id));
+    }
+    nvs_close(handle);
+    if (error != ESP_OK) *state = (linepods_reader_state_t) {0};
+    return error;
+}
+
+esp_err_t linepods_config_save_reader_state(const linepods_reader_state_t *state)
+{
+    if (!state || state->browse_mode > 1 || !state->quote_id[0]) {
+        return ESP_ERR_INVALID_ARG;
+    }
+    nvs_handle_t handle;
+    esp_err_t error = nvs_open(LINEPODS_CONFIG_NAMESPACE, NVS_READWRITE, &handle);
+    if (error != ESP_OK) return error;
+    error = nvs_set_u8(handle, "read_mode", state->browse_mode);
+    if (error == ESP_OK) error = nvs_set_str(handle, "read_book", state->book_id);
+    if (error == ESP_OK) error = nvs_set_str(handle, "read_quote", state->quote_id);
+    if (error == ESP_OK) error = nvs_commit(handle);
+    nvs_close(handle);
+    return error;
+}
+
 esp_err_t linepods_config_clear(void)
 {
     nvs_handle_t handle;

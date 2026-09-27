@@ -151,6 +151,26 @@ int main(void)
     assert(strcmp(item.quote.chapter, "第三章") == 0);
     assert(item.quote.created_at == 300);
 
+    linepods_book_range_t range;
+    assert(linepods_store_read_book(0, &range) == ESP_OK);
+    assert(range.book_index == 0);
+    assert(range.first_item_index == 0);
+    assert(range.item_count == 2);
+    assert(strcmp(range.book.book_id, "book-1") == 0);
+    assert(linepods_store_read_book(1, &range) == ESP_OK);
+    assert(range.first_item_index == 2);
+    assert(range.item_count == 1);
+    assert(strcmp(range.book.title, "第二本书") == 0);
+    assert(linepods_store_find_book("book-1", &range) == ESP_OK);
+    assert(range.book_index == 0 && range.item_count == 2);
+    assert(linepods_store_find_book("missing", &range) == ESP_ERR_NOT_FOUND);
+
+    size_t found_index = SIZE_MAX;
+    assert(linepods_store_find_quote("quote-2", &found_index) == ESP_OK);
+    assert(found_index == 1);
+    assert(linepods_store_find_quote("missing", &found_index)
+           == ESP_ERR_NOT_FOUND);
+
     assert(linepods_store_sync_begin() == ESP_OK);
     size_t copied = 0;
     assert(linepods_store_sync_copy_book(&first_book, &copied) == ESP_OK);
