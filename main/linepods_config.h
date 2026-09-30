@@ -22,6 +22,14 @@ typedef struct {
     char quote_id[LINEPODS_READER_ID_MAX + 1];
 } linepods_reader_state_t;
 
+typedef struct {
+    uint16_t screen_off_seconds;
+    uint16_t deep_sleep_minutes;
+} linepods_preferences_t;
+
+#define LINEPODS_DEFAULT_SCREEN_OFF_SECONDS 30
+#define LINEPODS_DEFAULT_DEEP_SLEEP_MINUTES 5
+
 bool linepods_config_valid(const linepods_config_t *config);
 esp_err_t linepods_config_load(linepods_config_t *config);
 esp_err_t linepods_config_save(const linepods_config_t *config);
@@ -29,4 +37,7 @@ esp_err_t linepods_config_load_last_sync(time_t *timestamp);
 esp_err_t linepods_config_save_last_sync(time_t timestamp);
 esp_err_t linepods_config_load_reader_state(linepods_reader_state_t *state);
 esp_err_t linepods_config_save_reader_state(const linepods_reader_state_t *state);
+esp_err_t linepods_config_clear_reader_state(void);
+esp_err_t linepods_config_load_preferences(linepods_preferences_t *preferences);
+esp_err_t linepods_config_save_preferences(const linepods_preferences_t *preferences);
 esp_err_t linepods_config_clear(void);

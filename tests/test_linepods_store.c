@@ -211,6 +211,17 @@ int main(void)
     assert(strcmp(content.item.book.book_id, "book-2") == 0);
     assert_text(0, "replacement generation");
 
+    linepods_store_info_t info;
+    assert(linepods_store_get_info(&info) == ESP_OK);
+    assert(info.item_count == 1);
+    assert(info.book_count == 1);
+    assert(info.total_bytes >= info.used_bytes);
+    assert(linepods_store_clear() == ESP_OK);
+    assert(linepods_store_load_content(&content) == ESP_ERR_NOT_FOUND);
+    assert(linepods_store_get_info(&info) == ESP_OK);
+    assert(info.item_count == 0);
+    assert(info.book_count == 0);
+
     remove_store_files();
     {
         char path[512];

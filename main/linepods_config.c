@@ -134,12 +134,91 @@ esp_err_t linepods_config_save_reader_state(const linepods_reader_state_t *state
     return error;
 }
 
+esp_err_t linepods_config_clear_reader_state(void)
+{
+    nvs_handle_t handle;
+    esp_err_t error = nvs_open(LINEPODS_CONFIG_NAMESPACE, NVS_READWRITE, &handle);
+    if (error != ESP_OK) return error;
+    error = nvs_erase_key(handle, "read_mode");
+    if (error == ESP_ERR_NVS_NOT_FOUND) error = ESP_OK;
+    esp_err_t next = nvs_erase_key(handle, "read_book");
+    if (next != ESP_OK && next != ESP_ERR_NVS_NOT_FOUND && error == ESP_OK) error = next;
+    next = nvs_erase_key(handle, "read_quote");
+    if (next != ESP_OK && next != ESP_ERR_NVS_NOT_FOUND && error == ESP_OK) error = next;
+    if (error == ESP_OK) error = nvs_commit(handle);
+    nvs_close(handle);
+    return error;
+}
+
+static bool preferences_valid(const linepods_preferences_t *preferences)
+{
+    if (!preferences) return false;
+    bool screen_valid = preferences->screen_off_seconds == 15
+                     || preferences->screen_off_seconds == 30
+                     || preferences->screen_off_seconds == 60
+                     || preferences->screen_off_seconds == 120;
+    bool sleep_valid = preferences->deep_sleep_minutes == 0
+                    || preferences->deep_sleep_minutes == 5
+                    || preferences->deep_sleep_minutes == 15
+                    || preferences->deep_sleep_minutes == 30
+                    || preferences->deep_sleep_minutes == 60;
+    return screen_valid && sleep_valid;
+}
+
+esp_err_t linepods_config_load_preferences(linepods_preferences_t *preferences)
+{
+    if (!preferences) return ESP_ERR_INVALID_ARG;
+    *preferences = (linepods_preferences_t) {
+        .screen_off_seconds = LINEPODS_DEFAULT_SCREEN_OFF_SECONDS,
+        .deep_sleep_minutes = LINEPODS_DEFAULT_DEEP_SLEEP_MINUTES,
+    };
+    nvs_handle_t handle;
+    esp_err_t error = nvs_open(LINEPODS_CONFIG_NAMESPACE, NVS_READONLY, &handle);
+    if (error == ESP_ERR_NVS_NOT_FOUND) return ESP_OK;
+    if (error != ESP_OK) return error;
+    uint16_t screen = preferences->screen_off_seconds;
+    uint16_t sleep = preferences->deep_sleep_minutes;
+    esp_err_t screen_error = nvs_get_u16(handle, "screen_sec", &screen);
+    esp_err_t sleep_error = nvs_get_u16(handle, "sleep_min", &sleep);
+    nvs_close(handle);
+    if (screen_error != ESP_OK && screen_error != ESP_ERR_NVS_NOT_FOUND) return screen_error;
+    if (sleep_error != ESP_OK && sleep_error != ESP_ERR_NVS_NOT_FOUND) return sleep_error;
+    linepods_preferences_t stored = {
+        .screen_off_seconds = screen,
+        .deep_sleep_minutes = sleep,
+    };
+    if (preferences_valid(&stored)) *preferences = stored;
+    return ESP_OK;
+}
+
+esp_err_t linepods_config_save_preferences(const linepods_preferences_t *preferences)
+{
+    if (!preferences_valid(preferences)) return ESP_ERR_INVALID_ARG;
+    nvs_handle_t handle;
+    esp_err_t error = nvs_open(LINEPODS_CONFIG_NAMESPACE, NVS_READWRITE, &handle);
+    if (error != ESP_OK) return error;
+    error = nvs_set_u16(handle, "screen_sec", preferences->screen_off_seconds);
+    if (error == ESP_OK) {
+        error = nvs_set_u16(handle, "sleep_min", preferences->deep_sleep_minutes);
+    }
+    if (error == ESP_OK) error = nvs_commit(handle);
+    nvs_close(handle);
+    return error;
+}
+
 esp_err_t linepods_config_clear(void)
 {
     nvs_handle_t handle;
     esp_err_t error = nvs_open(LINEPODS_CONFIG_NAMESPACE, NVS_READWRITE, &handle);
     if (error != ESP_OK) return error;
-    error = nvs_erase_all(handle);
+    static const char *const keys[] = {"version", "ssid", "wifi_pwd", "api_key"};
+    for (size_t i = 0; i < sizeof(keys) / sizeof(keys[0]); i++) {
+        esp_err_t next = nvs_erase_key(handle, keys[i]);
+        if (next != ESP_OK && next != ESP_ERR_NVS_NOT_FOUND) {
+            error = next;
+            break;
+        }
+    }
     if (error == ESP_OK) error = nvs_commit(handle);
     nvs_close(handle);
     return error;

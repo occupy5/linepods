@@ -949,6 +949,42 @@ esp_err_t linepods_store_load_content(linepods_content_t *content)
     return error;
 }
 
+esp_err_t linepods_store_get_info(linepods_store_info_t *info)
+{
+    if (!info) return ESP_ERR_INVALID_ARG;
+    *info = (linepods_store_info_t) {0};
+    if (!s_mounted) return ESP_ERR_INVALID_STATE;
+    esp_err_t error = esp_spiffs_info(LINEPODS_STORE_PARTITION,
+                                      &info->total_bytes, &info->used_bytes);
+    if (error != ESP_OK) return error;
+    if (s_active_slot < 0) refresh_active_slot();
+    if (s_active_slot >= 0) {
+        info->item_count = s_active_header.item_count;
+        info->book_count = s_active_header.book_count;
+    }
+    return ESP_OK;
+}
+
+esp_err_t linepods_store_clear(void)
+{
+    if (!s_mounted) return ESP_ERR_INVALID_STATE;
+    if (s_sync.active) return ESP_ERR_INVALID_STATE;
+    esp_err_t error = ESP_OK;
+    for (int slot = 0; slot < LINEPODS_SLOT_COUNT; slot++) {
+        char path[LINEPODS_PATH_SIZE];
+        slot_path(slot, path, sizeof(path));
+        if (remove(path) != 0 && errno != ENOENT) error = ESP_FAIL;
+        storage_yield();
+    }
+    char temporary[LINEPODS_PATH_SIZE];
+    index_path(temporary, sizeof(temporary));
+    if (remove(temporary) != 0 && errno != ENOENT) error = ESP_FAIL;
+    cleanup_legacy_cache();
+    s_active_slot = -1;
+    s_active_header = (library_header_t) {0};
+    return error;
+}
+
 esp_err_t linepods_store_read_text(size_t item_index, char **text,
                                  size_t *length)
 {

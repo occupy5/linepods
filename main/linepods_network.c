@@ -38,6 +38,8 @@ static unsigned s_retries;
 static volatile uint8_t s_disconnect_reason;
 static char s_setup_ssid[24];
 static char s_setup_password[16];
+static linepods_provision_mode_t s_provision_mode;
+static linepods_config_t s_provision_base;
 
 static void wifi_event(void *arg, esp_event_base_t base, int32_t id, void *data)
 {
@@ -233,7 +235,7 @@ void linepods_network_format_connect_error(esp_err_t error,
 
 static esp_err_t page_handler(httpd_req_t *request)
 {
-    static const char PAGE[] =
+    static const char HEAD[] =
         "<!doctype html><html lang=zh-CN><meta charset=utf-8>"
         "<meta name=viewport content='width=device-width,initial-scale=1'>"
         "<title>配置 Linepods</title><style>"
@@ -251,22 +253,50 @@ static esp_err_t page_handler(httpd_req_t *request)
         "margin-top:4px;border:0;border-radius:12px;background:#111;color:#fff;padding:15px;"
         "font:650 17px system-ui;cursor:pointer}.foot{text-align:center;font-size:13px;"
         "margin-top:16px;color:#666}</style><main><div class=brand>LINEPODS</div>"
-        "<section class=card><h1>把划线装进口袋</h1>"
-        "<p>填写常用的 2.4 GHz Wi-Fi 和微信读书 API Key。验证并首次同步成功后，"
-        "Linepods 才会保存这份配置。</p><form method=post action=/configure>"
+        "<section class=card>";
+    static const char WIFI_FIELDS[] =
         "<label for=ssid>Wi-Fi 名称</label><input id=ssid name=ssid maxlength=32 "
         "autocomplete=off placeholder='仅支持 2.4 GHz Wi-Fi' required>"
         "<label for=password>Wi-Fi 密码</label><input id=password name=password "
-        "type=password maxlength=64 autocomplete=current-password placeholder='开放网络可留空'>"
+        "type=password maxlength=64 autocomplete=current-password placeholder='开放网络可留空'>";
+    static const char KEY_FIELD[] =
         "<label for=key>微信读书 API Key</label><input id=key name=key type=password "
         "maxlength=160 autocomplete=off placeholder='wrk-…' required>"
         "<div class=hint><strong>在哪里获取 API Key？</strong>打开微信读书 App，在 "
         "<span class=path>我 → 设置 → 微信读书技能 → 获取 API Key</span> 中找到并复制。"
-        "</div><button type=submit>连接并同步划线</button></form>"
+        "</div>";
+    static const char END[] =
+        "<button type=submit>验证并同步划线</button></form>"
         "<div class=foot>提交后请回到 Linepods 屏幕查看验证结果</div>"
         "</section></main></html>";
     httpd_resp_set_type(request, "text/html; charset=utf-8");
-    return httpd_resp_send(request, PAGE, HTTPD_RESP_USE_STRLEN);
+    esp_err_t error = httpd_resp_send_chunk(request, HEAD, HTTPD_RESP_USE_STRLEN);
+    if (error != ESP_OK) return error;
+    if (s_provision_mode == LINEPODS_PROVISION_WIFI) {
+        error = httpd_resp_send_chunk(request,
+            "<h1>更新 Wi-Fi</h1><p>API Key 会保持不变。填写新的 2.4 GHz Wi-Fi。"
+            "</p><form method=post action=/configure>", HTTPD_RESP_USE_STRLEN);
+        if (error == ESP_OK) error = httpd_resp_send_chunk(
+            request, WIFI_FIELDS, HTTPD_RESP_USE_STRLEN);
+    } else if (s_provision_mode == LINEPODS_PROVISION_API_KEY) {
+        error = httpd_resp_send_chunk(request,
+            "<h1>更新 API Key</h1><p>Wi-Fi 会保持不变。填写新的微信读书 API Key。"
+            "</p><form method=post action=/configure>", HTTPD_RESP_USE_STRLEN);
+        if (error == ESP_OK) error = httpd_resp_send_chunk(
+            request, KEY_FIELD, HTTPD_RESP_USE_STRLEN);
+    } else {
+        error = httpd_resp_send_chunk(request,
+            "<h1>把划线装进口袋</h1><p>填写常用的 2.4 GHz Wi-Fi 和微信读书 API Key。"
+            "验证并首次同步成功后，Linepods 才会保存这份配置。</p>"
+            "<form method=post action=/configure>", HTTPD_RESP_USE_STRLEN);
+        if (error == ESP_OK) error = httpd_resp_send_chunk(
+            request, WIFI_FIELDS, HTTPD_RESP_USE_STRLEN);
+        if (error == ESP_OK) error = httpd_resp_send_chunk(
+            request, KEY_FIELD, HTTPD_RESP_USE_STRLEN);
+    }
+    if (error == ESP_OK) error = httpd_resp_send_chunk(request, END, HTTPD_RESP_USE_STRLEN);
+    if (error == ESP_OK) error = httpd_resp_send_chunk(request, NULL, 0);
+    return error;
 }
 
 static esp_err_t configure_handler(httpd_req_t *request)
@@ -288,13 +318,18 @@ static esp_err_t configure_handler(httpd_req_t *request)
     }
     body[received] = '\0';
 
-    linepods_config_t config = {0};
-    bool valid = linepods_form_value(body, "ssid", config.ssid, sizeof(config.ssid))
-              && linepods_form_value(body, "password", config.password,
-                                   sizeof(config.password))
-              && linepods_form_value(body, "key", config.api_key,
-                                   sizeof(config.api_key))
-              && linepods_config_valid(&config);
+    linepods_config_t config = s_provision_base;
+    bool valid = true;
+    if (s_provision_mode != LINEPODS_PROVISION_API_KEY) {
+        valid = linepods_form_value(body, "ssid", config.ssid, sizeof(config.ssid))
+             && linepods_form_value(body, "password", config.password,
+                                    sizeof(config.password));
+    }
+    if (valid && s_provision_mode != LINEPODS_PROVISION_WIFI) {
+        valid = linepods_form_value(body, "key", config.api_key,
+                                    sizeof(config.api_key));
+    }
+    valid = valid && linepods_config_valid(&config);
     memset(body, 0, sizeof(body));
     if (!valid) {
         memset(&config, 0, sizeof(config));
@@ -349,9 +384,15 @@ static void make_ap_credentials(void)
 }
 
 esp_err_t linepods_network_start_provisioning(linepods_provision_callback_t callback,
-                                             void *user)
+                                             void *user,
+                                             linepods_provision_mode_t mode,
+                                             const linepods_config_t *current)
 {
-    if (!s_initialized || !callback) return ESP_ERR_INVALID_ARG;
+    if (!s_initialized || !callback || mode > LINEPODS_PROVISION_API_KEY
+        || (mode != LINEPODS_PROVISION_ALL
+            && (!current || !linepods_config_valid(current)))) {
+        return ESP_ERR_INVALID_ARG;
+    }
     if (s_server) return ESP_OK;
 
     esp_err_t start_error = ensure_radio_started();
@@ -360,6 +401,8 @@ esp_err_t linepods_network_start_provisioning(linepods_provision_callback_t call
     make_ap_credentials();
     s_callback = callback;
     s_callback_user = user;
+    s_provision_mode = mode;
+    s_provision_base = current ? *current : (linepods_config_t) {0};
 
     wifi_config_t access_point = {0};
     snprintf((char *)access_point.ap.ssid, sizeof(access_point.ap.ssid), "%s",
@@ -410,6 +453,8 @@ void linepods_network_stop_provisioning(void)
     }
     s_callback = NULL;
     s_callback_user = NULL;
+    s_provision_mode = LINEPODS_PROVISION_ALL;
+    memset(&s_provision_base, 0, sizeof(s_provision_base));
     if (s_initialized) (void)esp_wifi_set_mode(WIFI_MODE_STA);
     memset(s_setup_password, 0, sizeof(s_setup_password));
 }

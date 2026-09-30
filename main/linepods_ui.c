@@ -9,8 +9,6 @@
 #include <stdlib.h>
 
 LV_FONT_DECLARE(linepods_font_body_20);
-LV_FONT_DECLARE(linepods_font_compare_noto_20_1);
-LV_FONT_DECLARE(linepods_font_compare_pixel_24_1);
 LV_FONT_DECLARE(linepods_font_title_20);
 LV_FONT_DECLARE(linepods_font_ui_18);
 
@@ -342,7 +340,7 @@ static void check_fonts_once(void)
         0x4E00, 0x4E8C, 0x4EE3, 0x5341, 0x5C0F, 0x5C81,
         0x5929, 0x65F6, 0x6CE2, 0x738B, 0x91D1, 0x9EC4, 0x300A, 0x300B,
     };
-    static const uint32_t comparison_glyphs[] = {
+    static const uint32_t ui_glyphs[] = {
         0x0041, 0x00B7, 0x3002, 0x8D62, 0x85CF, 0x9B13, 0x8584,
         0x66DC, 0xFF0C, 0xFF1A,
     };
@@ -355,15 +353,9 @@ static void check_fonts_once(void)
     check_required_glyphs(&linepods_font_body_20, onboarding_glyphs,
                           sizeof(onboarding_glyphs) / sizeof(onboarding_glyphs[0]),
                           "linepods_font_body_20 onboarding");
-    check_required_glyphs(&linepods_font_ui_18, comparison_glyphs,
-                          sizeof(comparison_glyphs) / sizeof(comparison_glyphs[0]),
+    check_required_glyphs(&linepods_font_ui_18, ui_glyphs,
+                          sizeof(ui_glyphs) / sizeof(ui_glyphs[0]),
                           "linepods_font_ui_18");
-    check_required_glyphs(&linepods_font_compare_noto_20_1, comparison_glyphs,
-                          sizeof(comparison_glyphs) / sizeof(comparison_glyphs[0]),
-                          "linepods_font_compare_noto_20_1");
-    check_required_glyphs(&linepods_font_compare_pixel_24_1, comparison_glyphs,
-                          sizeof(comparison_glyphs) / sizeof(comparison_glyphs[0]),
-                          "linepods_font_compare_pixel_24_1");
     s_fonts_checked = true;
 }
 
@@ -413,7 +405,8 @@ void linepods_ui_show_welcome(void)
     load_screen(screen);
 }
 
-void linepods_ui_show_setup(const char *ssid, const char *password)
+void linepods_ui_show_setup(const char *title_text, const char *ssid,
+                           const char *password)
 {
     lv_obj_t *page;
     lv_obj_t *screen = new_screen(&page);
@@ -421,7 +414,8 @@ void linepods_ui_show_setup(const char *ssid, const char *password)
     lv_obj_set_style_pad_bottom(page, 6, 0);
     lv_obj_set_style_pad_row(page, 4, 0);
 
-    lv_obj_t *title = body_label(page, "连接 Linepods", COLOR_INK);
+    lv_obj_t *title = body_label(
+        page, title_text ? title_text : "连接 Linepods", COLOR_INK);
     set_single_line(title, 30);
 
     lv_obj_t *intro = body_label(page,
@@ -594,37 +588,37 @@ void linepods_ui_show_card(const linepods_content_t *content, size_t index,
 
 void linepods_ui_show_browse_menu(size_t selected_index)
 {
-    static const char *const options[LINEPODS_BROWSE_OPTION_COUNT] = {
+    static const char *const options[LINEPODS_READING_OPTION_COUNT] = {
         "随机遇见", "全部划线", "按书浏览",
     };
-    static const char *const hints[LINEPODS_BROWSE_OPTION_COUNT] = {
+    static const char *const hints[LINEPODS_READING_OPTION_COUNT] = {
         "从所有书中换一句", "继续按同步顺序阅读",
         "先选书，再看书内划线",
     };
-    selected_index %= LINEPODS_BROWSE_OPTION_COUNT;
+    selected_index %= LINEPODS_READING_OPTION_COUNT;
     lv_obj_t *page;
     lv_obj_t *screen = new_screen(&page);
     lv_obj_set_style_pad_row(page, 5, 0);
 
-    lv_obj_t *title = body_label(page, "浏览方式", COLOR_INK);
+    lv_obj_t *title = body_label(page, "阅读方式", COLOR_INK);
     set_single_line(title, 30);
-    for (size_t i = 0; i < LINEPODS_BROWSE_OPTION_COUNT; i++) {
+    for (size_t i = 0; i < LINEPODS_READING_OPTION_COUNT; i++) {
         bool selected = i == selected_index;
         lv_obj_t *row = lv_obj_create(page);
-        lv_obj_set_size(row, lv_pct(100), 61);
+        lv_obj_set_size(row, lv_pct(100), 58);
         style_panel(row, selected ? COLOR_INK : COLOR_SURFACE, 7);
         lv_obj_set_style_border_color(row, lv_color_hex(COLOR_LINE), 0);
         lv_obj_set_style_border_width(row, selected ? 0 : 1, 0);
-        lv_obj_set_style_pad_all(row, 7, 0);
+        lv_obj_set_style_pad_all(row, 4, 0);
 
         lv_obj_t *name = body_label(row, options[i],
                                     selected ? COLOR_PAPER : COLOR_INK);
-        lv_obj_set_size(name, lv_pct(100), 27);
+        lv_obj_set_size(name, lv_pct(100), 24);
         lv_obj_set_pos(name, 0, 0);
         lv_obj_t *hint = body_label(row, hints[i],
                                     selected ? COLOR_PAPER_BACK : COLOR_MUTED);
-        lv_obj_set_size(hint, lv_pct(100), 25);
-        lv_obj_set_pos(hint, 0, 27);
+        lv_obj_set_size(hint, lv_pct(100), 21);
+        lv_obj_set_pos(hint, 0, 23);
         lv_label_set_long_mode(hint, LV_LABEL_LONG_DOT);
     }
     add_footer(page, "上下选择　确定进入　长按确定返回");
@@ -763,54 +757,200 @@ void linepods_ui_show_error(const char *message)
     load_screen(screen);
 }
 
-void linepods_ui_show_font_compare(size_t index)
+void linepods_ui_show_settings(size_t selected_index,
+                              const linepods_preferences_t *preferences,
+                              const linepods_store_info_t *info)
 {
-    static const lv_font_t *const fonts[LINEPODS_FONT_COMPARE_COUNT] = {
-        &linepods_font_ui_18,
-        &linepods_font_compare_noto_20_1,
-        &linepods_font_body_20,
-        &linepods_font_compare_pixel_24_1,
+    static const char *const names[LINEPODS_SETTINGS_SECTION_COUNT] = {
+        "连接与账号", "显示与休眠", "数据与关于",
     };
-    static const char *const descriptions[LINEPODS_FONT_COMPARE_COUNT] = {
-        "1/4 旧版方案\nNoto 18px · 1bpp · light",
-        "2/4 大字锐利\nNoto 20px · 1bpp · strong",
-        "3/4 当前方案\nNoto 20px · 2bpp · strong",
-        "4/4 像素方案\nFusion 24px · 1bpp · 2x",
-    };
-    static const char *const sample =
-        "阅读清晰度测试\n"
-        "复杂：赢藏鬓薄曜\n"
-        "在具体问题中\n"
-        "重要的是清晰\n"
-        "辨认每一笔。\n"
-        "Linepods 2026 · Aa";
-
-    index %= LINEPODS_FONT_COMPARE_COUNT;
+    selected_index %= LINEPODS_SETTINGS_SECTION_COUNT;
     lv_obj_t *page;
     lv_obj_t *screen = new_screen(&page);
+    lv_obj_set_style_pad_row(page, 5, 0);
+    lv_obj_t *title = body_label(page, "设置", COLOR_INK);
+    set_single_line(title, 30);
+    for (size_t i = 0; i < LINEPODS_SETTINGS_SECTION_COUNT; i++) {
+        bool selected = i == selected_index;
+        lv_obj_t *row = lv_obj_create(page);
+        lv_obj_set_size(row, lv_pct(100), 58);
+        style_panel(row, selected ? COLOR_INK : COLOR_SURFACE, 7);
+        lv_obj_set_style_border_color(row, lv_color_hex(COLOR_LINE), 0);
+        lv_obj_set_style_border_width(row, selected ? 0 : 1, 0);
+        lv_obj_set_style_pad_all(row, 5, 0);
+        lv_obj_t *name = body_label(row, names[i],
+                                    selected ? COLOR_PAPER : COLOR_INK);
+        lv_obj_set_size(name, lv_pct(100), 25);
+        lv_obj_set_pos(name, 0, 0);
+        char summary[64];
+        if (i == LINEPODS_SETTINGS_SECTION_CONNECTION) {
+            snprintf(summary, sizeof(summary), "Wi-Fi 与 API Key");
+        } else if (i == LINEPODS_SETTINGS_SECTION_POWER && preferences) {
+            if (preferences->deep_sleep_minutes == 0) {
+                snprintf(summary, sizeof(summary), "息屏 %u 秒 · 永不深睡",
+                         (unsigned)preferences->screen_off_seconds);
+            } else {
+                snprintf(summary, sizeof(summary), "息屏 %u 秒 · 深睡 %u 分",
+                         (unsigned)preferences->screen_off_seconds,
+                         (unsigned)preferences->deep_sleep_minutes);
+            }
+        } else {
+            snprintf(summary, sizeof(summary), "%u 条划线 · 已用 %u KB",
+                     (unsigned)(info ? info->item_count : 0),
+                     (unsigned)(info ? info->used_bytes / 1024 : 0));
+        }
+        lv_obj_t *hint = body_label(row, summary,
+                                    selected ? COLOR_PAPER_BACK : COLOR_MUTED);
+        lv_obj_set_size(hint, lv_pct(100), 24);
+        lv_obj_set_pos(hint, 0, 27);
+        lv_label_set_long_mode(hint, LV_LABEL_LONG_DOT);
+    }
+    add_footer(page, "上下选择　确定进入　长按确定返回");
+    load_screen(screen);
+}
 
-    lv_obj_t *description = label(page, descriptions[index], COLOR_ACCENT);
-    lv_obj_set_size(description, lv_pct(100), 50);
-    lv_label_set_long_mode(description, LV_LABEL_LONG_WRAP);
-    lv_obj_set_style_text_line_space(description, 0, 0);
+void linepods_ui_show_settings_items(linepods_settings_section_t section,
+                                    size_t selected_index,
+                                    const linepods_preferences_t *preferences)
+{
+    static const char *const connection[] = {
+        "更新 Wi-Fi", "更新 API Key", "清除连接信息",
+    };
+    static const char *const power[] = {"息屏时间", "深睡时间"};
+    static const char *const data[] = {"版本与存储", "清除本地划线"};
+    const char *title_text;
+    const char *const *names;
+    size_t count;
+    if (section == LINEPODS_SETTINGS_SECTION_CONNECTION) {
+        title_text = "连接与账号";
+        names = connection;
+        count = 3;
+    } else if (section == LINEPODS_SETTINGS_SECTION_POWER) {
+        title_text = "显示与休眠";
+        names = power;
+        count = 2;
+    } else {
+        title_text = "数据与关于";
+        names = data;
+        count = 2;
+    }
+    selected_index %= count;
+    lv_obj_t *page;
+    lv_obj_t *screen = new_screen(&page);
+    lv_obj_set_style_pad_row(page, 6, 0);
+    lv_obj_t *title = body_label(page, title_text, COLOR_INK);
+    set_single_line(title, 30);
+    for (size_t i = 0; i < count; i++) {
+        bool selected = i == selected_index;
+        lv_obj_t *row = lv_obj_create(page);
+        lv_obj_set_size(row, lv_pct(100), count == 2 ? 72 : 54);
+        style_panel(row, selected ? COLOR_INK : COLOR_SURFACE, 7);
+        lv_obj_set_style_border_color(row, lv_color_hex(COLOR_LINE), 0);
+        lv_obj_set_style_border_width(row, selected ? 0 : 1, 0);
+        lv_obj_set_style_pad_all(row, 8, 0);
+        char text[64];
+        snprintf(text, sizeof(text), "%s", names[i]);
+        if (section == LINEPODS_SETTINGS_SECTION_POWER && preferences) {
+            if (i == 0) {
+                snprintf(text, sizeof(text), "息屏时间　%u 秒",
+                         (unsigned)preferences->screen_off_seconds);
+            } else if (preferences->deep_sleep_minutes == 0) {
+                snprintf(text, sizeof(text), "深睡时间　永不");
+            } else {
+                snprintf(text, sizeof(text), "深睡时间　%u 分",
+                         (unsigned)preferences->deep_sleep_minutes);
+            }
+        }
+        lv_obj_t *name = body_label(row, text,
+                                    selected ? COLOR_PAPER : COLOR_INK);
+        set_single_line(name, count == 2 ? 45 : 35);
+    }
+    add_footer(page, "上下选择　确定进入　长按确定返回");
+    load_screen(screen);
+}
 
-    lv_obj_t *reader = lv_obj_create(page);
-    lv_obj_set_size(reader, lv_pct(100), 180);
-    style_panel(reader, COLOR_PAPER, 8);
-    lv_obj_set_style_border_color(reader, lv_color_hex(COLOR_LINE), 0);
-    lv_obj_set_style_border_width(reader, 1, 0);
-    lv_obj_set_style_pad_all(reader, 0, 0);
+void linepods_ui_show_settings_confirmation(linepods_setting_t setting,
+                                           size_t selected_index)
+{
+    const char *title_text = setting == LINEPODS_SETTING_CLEAR_CACHE
+                           ? "清除本地划线？" : "清除连接信息？";
+    const char *detail_text = setting == LINEPODS_SETTING_CLEAR_CACHE
+        ? "将删除设备上的书籍与划线。\nWi-Fi 和 API Key 会保留。"
+        : "将删除 Wi-Fi 和 API Key。\n本地划线缓存会保留。";
+    lv_obj_t *page;
+    lv_obj_t *screen = new_screen(&page);
+    lv_obj_t *title = body_label(page, title_text, COLOR_INK);
+    set_single_line(title, 30);
+    lv_obj_t *detail = body_label(page, detail_text, COLOR_MUTED);
+    lv_obj_set_size(detail, lv_pct(100), 88);
+    lv_label_set_long_mode(detail, LV_LABEL_LONG_WRAP);
+    const char *choices[2] = {"取消", "确认清除"};
+    for (size_t i = 0; i < 2; i++) {
+        bool selected = (selected_index % 2) == i;
+        lv_obj_t *row = lv_obj_create(page);
+        lv_obj_set_size(row, lv_pct(100), 48);
+        style_panel(row, selected ? COLOR_INK : COLOR_SURFACE, 7);
+        lv_obj_set_style_pad_all(row, 7, 0);
+        lv_obj_t *choice = body_label(row, choices[i],
+                                      selected ? COLOR_PAPER : COLOR_INK);
+        set_single_line(choice, 30);
+        lv_obj_set_style_text_align(choice, LV_TEXT_ALIGN_CENTER, 0);
+    }
+    add_footer(page, "上下选择　确定执行　长按确定返回");
+    load_screen(screen);
+}
 
-    lv_obj_t *sample_label = lv_label_create(reader);
-    lv_obj_set_style_text_font(sample_label, fonts[index], 0);
-    lv_obj_set_style_text_color(sample_label, lv_color_hex(COLOR_INK), 0);
-    lv_obj_set_size(sample_label, 192, 158);
-    lv_obj_set_pos(sample_label, 12, 8);
-    lv_label_set_long_mode(sample_label, LV_LABEL_LONG_WRAP);
-    lv_obj_set_style_text_line_space(sample_label, 0, 0);
-    lv_label_set_text(sample_label, sample);
+void linepods_ui_show_setting_value(linepods_setting_t setting,
+                                   const char *value, size_t index,
+                                   size_t count)
+{
+    lv_obj_t *page;
+    lv_obj_t *screen = new_screen(&page);
+    lv_obj_t *title = body_label(page,
+        setting == LINEPODS_SETTING_DEEP_SLEEP ? "深睡时间" : "息屏时间",
+        COLOR_INK);
+    set_single_line(title, 30);
+    lv_obj_t *card = lv_obj_create(page);
+    lv_obj_set_size(card, lv_pct(100), 156);
+    style_panel(card, COLOR_PAPER, 8);
+    lv_obj_set_style_pad_all(card, 12, 0);
+    lv_obj_t *choice = body_label(card, value ? value : "—", COLOR_INK);
+    lv_obj_set_size(choice, lv_pct(100), 72);
+    lv_obj_center(choice);
+    lv_obj_set_style_text_align(choice, LV_TEXT_ALIGN_CENTER, 0);
+    char position[24];
+    snprintf(position, sizeof(position), "%u / %u",
+             (unsigned)(index + 1), (unsigned)count);
+    lv_obj_t *counter = label(page, position, COLOR_MUTED);
+    set_single_line(counter, 24);
+    lv_obj_set_style_text_align(counter, LV_TEXT_ALIGN_CENTER, 0);
+    add_footer(page, "上下调整　确定保存　长按确定取消");
+    load_screen(screen);
+}
 
-    add_footer(page, "上下切换　长按确定返回");
+void linepods_ui_show_settings_info(const char *version,
+                                   const linepods_store_info_t *info)
+{
+    lv_obj_t *page;
+    lv_obj_t *screen = new_screen(&page);
+    lv_obj_t *title = body_label(page, "版本与存储", COLOR_INK);
+    set_single_line(title, 30);
+    lv_obj_t *card = lv_obj_create(page);
+    lv_obj_set_size(card, lv_pct(100), 190);
+    style_panel(card, COLOR_PAPER, 8);
+    lv_obj_set_style_pad_all(card, 13, 0);
+    char text[192];
+    snprintf(text, sizeof(text),
+             "Linepods %s\n\n%u 本书 · %u 条划线\n缓存 %u / %u KB",
+             version ? version : "—",
+             (unsigned)(info ? info->book_count : 0),
+             (unsigned)(info ? info->item_count : 0),
+             (unsigned)(info ? info->used_bytes / 1024 : 0),
+             (unsigned)(info ? info->total_bytes / 1024 : 0));
+    lv_obj_t *detail = body_label(card, text, COLOR_INK);
+    lv_obj_set_size(detail, lv_pct(100), 165);
+    lv_label_set_long_mode(detail, LV_LABEL_LONG_WRAP);
+    add_footer(page, "长按确定返回");
     load_screen(screen);
 }
 

@@ -22,12 +22,52 @@ void linepods_logic_set_quotes(linepods_logic_t *logic, size_t quote_count)
     logic->range_count = quote_count;
     logic->detail_page_index = 0;
     logic->detail_page_count = 0;
-    logic->font_compare_index = 0;
     logic->browse_menu_index = 0;
     logic->book_index = 0;
+    logic->settings_index = 0;
     logic->browse_mode = LINEPODS_BROWSE_ALL;
     logic->detail_open_from_end = false;
     logic->view = quote_count > 0 ? LINEPODS_VIEW_CARD : LINEPODS_VIEW_ERROR;
+}
+
+void linepods_logic_open_setting_value(linepods_logic_t *logic,
+                                      linepods_setting_t setting,
+                                      size_t value_index, size_t value_count)
+{
+    if (!logic || value_count == 0) return;
+    logic->pending_setting = setting;
+    logic->settings_value_count = value_count;
+    logic->settings_value_index = value_index < value_count ? value_index : 0;
+    logic->view = LINEPODS_VIEW_SETTINGS_VALUE;
+}
+
+static size_t settings_item_count(size_t section)
+{
+    return section == LINEPODS_SETTINGS_SECTION_CONNECTION ? 3 : 2;
+}
+
+static linepods_setting_t selected_setting(const linepods_logic_t *logic)
+{
+    if (logic->settings_index == LINEPODS_SETTINGS_SECTION_CONNECTION) {
+        static const linepods_setting_t items[] = {
+            LINEPODS_SETTING_UPDATE_WIFI,
+            LINEPODS_SETTING_UPDATE_API_KEY,
+            LINEPODS_SETTING_CLEAR_CONFIG,
+        };
+        return items[logic->settings_item_index % 3];
+    }
+    if (logic->settings_index == LINEPODS_SETTINGS_SECTION_POWER) {
+        static const linepods_setting_t items[] = {
+            LINEPODS_SETTING_SCREEN_TIMEOUT,
+            LINEPODS_SETTING_DEEP_SLEEP,
+        };
+        return items[logic->settings_item_index % 2];
+    }
+    static const linepods_setting_t items[] = {
+        LINEPODS_SETTING_INFO,
+        LINEPODS_SETTING_CLEAR_CACHE,
+    };
+    return items[logic->settings_item_index % 2];
 }
 
 void linepods_logic_set_all_scope(linepods_logic_t *logic)
@@ -129,7 +169,11 @@ linepods_action_t linepods_logic_handle(linepods_logic_t *logic, linepods_input_
             return LINEPODS_ACTION_SHOW_DETAIL_NEW_ITEM;
         }
         if (input == LINEPODS_INPUT_UP_LONG) return LINEPODS_ACTION_SYNC;
-        if (input == LINEPODS_INPUT_OK_LONG) return LINEPODS_ACTION_START_SETUP;
+        if (input == LINEPODS_INPUT_OK_LONG) {
+            logic->view = LINEPODS_VIEW_SETTINGS;
+            logic->settings_index = 0;
+            return LINEPODS_ACTION_SHOW_SETTINGS;
+        }
         if (input == LINEPODS_INPUT_DOWN_LONG) {
             logic->view = LINEPODS_VIEW_BROWSE_MENU;
             logic->browse_menu_index = 0;
@@ -175,13 +219,13 @@ linepods_action_t linepods_logic_handle(linepods_logic_t *logic, linepods_input_
     if (logic->view == LINEPODS_VIEW_BROWSE_MENU) {
         if (input == LINEPODS_INPUT_UP_CLICK) {
             logic->browse_menu_index =
-                (logic->browse_menu_index + LINEPODS_BROWSE_OPTION_COUNT - 1)
-                % LINEPODS_BROWSE_OPTION_COUNT;
+                (logic->browse_menu_index + LINEPODS_READING_OPTION_COUNT - 1)
+                % LINEPODS_READING_OPTION_COUNT;
             return LINEPODS_ACTION_SHOW_BROWSE_MENU;
         }
         if (input == LINEPODS_INPUT_DOWN_CLICK) {
             logic->browse_menu_index =
-                (logic->browse_menu_index + 1) % LINEPODS_BROWSE_OPTION_COUNT;
+                (logic->browse_menu_index + 1) % LINEPODS_READING_OPTION_COUNT;
             return LINEPODS_ACTION_SHOW_BROWSE_MENU;
         }
         if (input == LINEPODS_INPUT_OK_CLICK) {
@@ -193,13 +237,126 @@ linepods_action_t linepods_logic_handle(linepods_logic_t *logic, linepods_input_
                 logic->view = LINEPODS_VIEW_CARD;
                 return LINEPODS_ACTION_SELECT_ALL;
             }
-            logic->view = LINEPODS_VIEW_BOOK_PICKER;
-            return LINEPODS_ACTION_SHOW_BOOK_PICKER;
+            if (logic->browse_menu_index == 2) {
+                logic->view = LINEPODS_VIEW_BOOK_PICKER;
+                return LINEPODS_ACTION_SHOW_BOOK_PICKER;
+            }
         }
         if (input == LINEPODS_INPUT_OK_LONG) {
             logic->view = LINEPODS_VIEW_CARD;
             return LINEPODS_ACTION_SHOW_CARD;
         }
+    }
+
+    if (logic->view == LINEPODS_VIEW_SETTINGS) {
+        if (input == LINEPODS_INPUT_UP_CLICK) {
+            logic->settings_index =
+                (logic->settings_index + LINEPODS_SETTINGS_SECTION_COUNT - 1)
+                % LINEPODS_SETTINGS_SECTION_COUNT;
+            return LINEPODS_ACTION_SHOW_SETTINGS;
+        }
+        if (input == LINEPODS_INPUT_DOWN_CLICK) {
+            logic->settings_index = (logic->settings_index + 1)
+                                  % LINEPODS_SETTINGS_SECTION_COUNT;
+            return LINEPODS_ACTION_SHOW_SETTINGS;
+        }
+        if (input == LINEPODS_INPUT_OK_CLICK) {
+            logic->settings_item_index = 0;
+            logic->view = LINEPODS_VIEW_SETTINGS_ITEMS;
+            return LINEPODS_ACTION_SHOW_SETTINGS;
+        }
+        if (input == LINEPODS_INPUT_OK_LONG) {
+            logic->view = LINEPODS_VIEW_CARD;
+            return LINEPODS_ACTION_SHOW_CARD;
+        }
+    }
+
+    if (logic->view == LINEPODS_VIEW_SETTINGS_ITEMS) {
+        size_t item_count = settings_item_count(logic->settings_index);
+        if (input == LINEPODS_INPUT_UP_CLICK) {
+            logic->settings_item_index =
+                (logic->settings_item_index + item_count - 1) % item_count;
+            return LINEPODS_ACTION_SHOW_SETTINGS;
+        }
+        if (input == LINEPODS_INPUT_DOWN_CLICK) {
+            logic->settings_item_index = (logic->settings_item_index + 1)
+                                       % item_count;
+            return LINEPODS_ACTION_SHOW_SETTINGS;
+        }
+        if (input == LINEPODS_INPUT_OK_CLICK) {
+            linepods_setting_t setting = selected_setting(logic);
+            switch (setting) {
+            case LINEPODS_SETTING_UPDATE_WIFI:
+                return LINEPODS_ACTION_UPDATE_WIFI;
+            case LINEPODS_SETTING_UPDATE_API_KEY:
+                return LINEPODS_ACTION_UPDATE_API_KEY;
+            case LINEPODS_SETTING_CLEAR_CONFIG:
+            case LINEPODS_SETTING_CLEAR_CACHE:
+                logic->pending_setting = setting;
+                logic->confirm_index = 0;
+                logic->view = LINEPODS_VIEW_SETTINGS_CONFIRM;
+                return LINEPODS_ACTION_SHOW_SETTINGS;
+            case LINEPODS_SETTING_SCREEN_TIMEOUT:
+                return LINEPODS_ACTION_EDIT_SCREEN_TIMEOUT;
+            case LINEPODS_SETTING_DEEP_SLEEP:
+                return LINEPODS_ACTION_EDIT_DEEP_SLEEP;
+            case LINEPODS_SETTING_INFO:
+                logic->view = LINEPODS_VIEW_SETTINGS_INFO;
+                return LINEPODS_ACTION_SHOW_SETTINGS_INFO;
+            }
+        }
+        if (input == LINEPODS_INPUT_OK_LONG) {
+            logic->view = LINEPODS_VIEW_SETTINGS;
+            return LINEPODS_ACTION_SHOW_SETTINGS;
+        }
+    }
+
+    if (logic->view == LINEPODS_VIEW_SETTINGS_CONFIRM) {
+        if (input == LINEPODS_INPUT_UP_CLICK || input == LINEPODS_INPUT_DOWN_CLICK) {
+            logic->confirm_index = logic->confirm_index ? 0 : 1;
+            return LINEPODS_ACTION_SHOW_SETTINGS;
+        }
+        if (input == LINEPODS_INPUT_OK_CLICK) {
+            logic->view = LINEPODS_VIEW_SETTINGS_ITEMS;
+            if (logic->confirm_index == 0) return LINEPODS_ACTION_SHOW_SETTINGS;
+            return logic->pending_setting == LINEPODS_SETTING_CLEAR_CACHE
+                 ? LINEPODS_ACTION_CLEAR_CACHE : LINEPODS_ACTION_CLEAR_CONFIG;
+        }
+        if (input == LINEPODS_INPUT_OK_LONG) {
+            logic->view = LINEPODS_VIEW_SETTINGS_ITEMS;
+            return LINEPODS_ACTION_SHOW_SETTINGS;
+        }
+    }
+
+    if (logic->view == LINEPODS_VIEW_SETTINGS_VALUE
+        && logic->settings_value_count > 0) {
+        if (input == LINEPODS_INPUT_UP_CLICK) {
+            logic->settings_value_index =
+                (logic->settings_value_index + logic->settings_value_count - 1)
+                % logic->settings_value_count;
+            return LINEPODS_ACTION_SHOW_SETTINGS_VALUE;
+        }
+        if (input == LINEPODS_INPUT_DOWN_CLICK) {
+            logic->settings_value_index = (logic->settings_value_index + 1)
+                                        % logic->settings_value_count;
+            return LINEPODS_ACTION_SHOW_SETTINGS_VALUE;
+        }
+        if (input == LINEPODS_INPUT_OK_CLICK) {
+            logic->view = LINEPODS_VIEW_SETTINGS_ITEMS;
+            return logic->pending_setting == LINEPODS_SETTING_DEEP_SLEEP
+                 ? LINEPODS_ACTION_SAVE_DEEP_SLEEP
+                 : LINEPODS_ACTION_SAVE_SCREEN_TIMEOUT;
+        }
+        if (input == LINEPODS_INPUT_OK_LONG) {
+            logic->view = LINEPODS_VIEW_SETTINGS_ITEMS;
+            return LINEPODS_ACTION_SHOW_SETTINGS;
+        }
+    }
+
+    if (logic->view == LINEPODS_VIEW_SETTINGS_INFO
+        && input == LINEPODS_INPUT_OK_LONG) {
+        logic->view = LINEPODS_VIEW_SETTINGS_ITEMS;
+        return LINEPODS_ACTION_SHOW_SETTINGS;
     }
 
     if (logic->view == LINEPODS_VIEW_BOOK_PICKER && logic->book_count > 0) {
@@ -219,24 +376,6 @@ linepods_action_t linepods_logic_handle(linepods_logic_t *logic, linepods_input_
         if (input == LINEPODS_INPUT_OK_LONG) {
             logic->view = LINEPODS_VIEW_BROWSE_MENU;
             return LINEPODS_ACTION_SHOW_BROWSE_MENU;
-        }
-    }
-
-    if (logic->view == LINEPODS_VIEW_FONT_COMPARE) {
-        if (input == LINEPODS_INPUT_UP_CLICK) {
-            logic->font_compare_index =
-                (logic->font_compare_index + LINEPODS_FONT_COMPARE_COUNT - 1)
-                % LINEPODS_FONT_COMPARE_COUNT;
-            return LINEPODS_ACTION_SHOW_FONT_COMPARE;
-        }
-        if (input == LINEPODS_INPUT_DOWN_CLICK) {
-            logic->font_compare_index = (logic->font_compare_index + 1)
-                                      % LINEPODS_FONT_COMPARE_COUNT;
-            return LINEPODS_ACTION_SHOW_FONT_COMPARE;
-        }
-        if (input == LINEPODS_INPUT_OK_LONG) {
-            logic->view = LINEPODS_VIEW_CARD;
-            return LINEPODS_ACTION_SHOW_CARD;
         }
     }
 

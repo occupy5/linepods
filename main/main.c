@@ -6,6 +6,7 @@
 #include "bsp_pins.h"
 #include "driver/gpio.h"
 #include "esp_log.h"
+#include "esp_app_desc.h"
 #include "esp_random.h"
 #include "esp_sleep.h"
 #include "esp_system.h"
@@ -57,7 +58,7 @@
 #define POWER_RADIO_OFF_AFTER_MS (60u * 1000u)
 #define POWER_DEEP_SLEEP_AFTER_MS (5u * 60u * 1000u)
 
-static const linepods_power_policy_config_t s_power_config = {
+static linepods_power_policy_config_t s_power_config = {
     .dim_after_ms = POWER_DIM_AFTER_MS,
     .screen_off_after_ms = POWER_SCREEN_OFF_AFTER_MS,
     .radio_off_after_ms = POWER_RADIO_OFF_AFTER_MS,
@@ -122,6 +123,10 @@ static linepods_content_t s_content;
 static linepods_logic_t s_logic;
 static linepods_book_range_t s_book_range;
 static linepods_reader_state_t s_reader_state;
+static linepods_preferences_t s_preferences = {
+    .screen_off_seconds = LINEPODS_DEFAULT_SCREEN_OFF_SECONDS,
+    .deep_sleep_minutes = LINEPODS_DEFAULT_DEEP_SLEEP_MINUTES,
+};
 static bool s_reader_state_dirty;
 static uint64_t s_reader_state_save_due_ms;
 static char s_card_status[24];
@@ -130,6 +135,31 @@ static size_t s_detail_item_index = SIZE_MAX;
 static linepods_pager_t s_detail_pager;
 
 static uint64_t now_ms(void);
+
+static const uint16_t SCREEN_TIMEOUT_OPTIONS[] = {15, 30, 60, 120};
+static const uint16_t DEEP_SLEEP_OPTIONS[] = {5, 15, 30, 60, 0};
+
+static size_t option_index(const uint16_t *options, size_t count, uint16_t value)
+{
+    for (size_t i = 0; i < count; i++) {
+        if (options[i] == value) return i;
+    }
+    return 0;
+}
+
+static void apply_preferences(void)
+{
+    uint32_t screen_ms = (uint32_t)s_preferences.screen_off_seconds * 1000u;
+    s_power_config.screen_off_after_ms = screen_ms;
+    s_power_config.dim_after_ms = screen_ms / 3u;
+    if (s_power_config.dim_after_ms > POWER_DIM_AFTER_MS) {
+        s_power_config.dim_after_ms = POWER_DIM_AFTER_MS;
+    }
+    s_power_config.radio_off_after_ms = screen_ms + 30000u;
+    s_power_config.deep_sleep_after_ms = s_preferences.deep_sleep_minutes == 0
+        ? 0 : (uint32_t)s_preferences.deep_sleep_minutes * 60u * 1000u;
+    s_power.config = s_power_config;
+}
 
 static void set_card_status(const char *status)
 {
@@ -264,6 +294,62 @@ static void ui_book_picker(void)
     bsp_lvgl_unlock();
 }
 
+static void ui_settings(void)
+{
+    linepods_store_info_t info = {0};
+    if (s_logic.view == LINEPODS_VIEW_SETTINGS) {
+        esp_err_t error = linepods_store_get_info(&info);
+        if (error != ESP_OK) {
+            ESP_LOGW(TAG, "Cannot read settings summary: %s",
+                     esp_err_to_name(error));
+        }
+    }
+    if (!bsp_lvgl_lock(500)) return;
+    if (s_logic.view == LINEPODS_VIEW_SETTINGS_CONFIRM) {
+        linepods_ui_show_settings_confirmation(s_logic.pending_setting,
+                                               s_logic.confirm_index);
+    } else if (s_logic.view == LINEPODS_VIEW_SETTINGS_ITEMS) {
+        linepods_ui_show_settings_items(
+            (linepods_settings_section_t)s_logic.settings_index,
+            s_logic.settings_item_index, &s_preferences);
+    } else {
+        linepods_ui_show_settings(s_logic.settings_index, &s_preferences, &info);
+    }
+    bsp_lvgl_unlock();
+}
+
+static void ui_setting_value(void)
+{
+    char value[32];
+    if (s_logic.pending_setting == LINEPODS_SETTING_DEEP_SLEEP) {
+        uint16_t minutes = DEEP_SLEEP_OPTIONS[s_logic.settings_value_index];
+        if (minutes == 0) snprintf(value, sizeof(value), "永不深睡");
+        else snprintf(value, sizeof(value), "%u 分钟", (unsigned)minutes);
+    } else {
+        snprintf(value, sizeof(value), "%u 秒",
+                 (unsigned)SCREEN_TIMEOUT_OPTIONS[s_logic.settings_value_index]);
+    }
+    if (!bsp_lvgl_lock(500)) return;
+    linepods_ui_show_setting_value(s_logic.pending_setting, value,
+                                  s_logic.settings_value_index,
+                                  s_logic.settings_value_count);
+    bsp_lvgl_unlock();
+}
+
+static void ui_settings_info(void)
+{
+    linepods_store_info_t info = {0};
+    esp_err_t error = linepods_store_get_info(&info);
+    if (error != ESP_OK) {
+        ESP_LOGW(TAG, "Cannot read cache usage: %s", esp_err_to_name(error));
+    }
+    const esp_app_desc_t *description = esp_app_get_description();
+    if (!bsp_lvgl_lock(500)) return;
+    linepods_ui_show_settings_info(description ? description->version : NULL,
+                                  &info);
+    bsp_lvgl_unlock();
+}
+
 static void ui_detail_page(void)
 {
     if (!s_detail_text || s_detail_item_index != s_logic.quote_index) return;
@@ -394,9 +480,15 @@ static bool provisioning_callback(const linepods_config_t *config, void *user)
     return xQueueSend(s_app_queue, &event, 0) == pdTRUE;
 }
 
-static void start_setup(void)
+static void start_setup(linepods_provision_mode_t mode)
 {
-    esp_err_t error = linepods_network_start_provisioning(provisioning_callback, NULL);
+    if (mode != LINEPODS_PROVISION_ALL && !linepods_config_valid(&s_active_config)) {
+        mode = LINEPODS_PROVISION_ALL;
+    }
+    const linepods_config_t *current = mode == LINEPODS_PROVISION_ALL
+                                    ? NULL : &s_active_config;
+    esp_err_t error = linepods_network_start_provisioning(
+        provisioning_callback, NULL, mode, current);
     if (error != ESP_OK) {
         char message[128];
         snprintf(message, sizeof(message), "无法启动设置热点（%s）",
@@ -406,7 +498,10 @@ static void start_setup(void)
     }
     linepods_logic_set_view(&s_logic, LINEPODS_VIEW_SETUP);
     if (!bsp_lvgl_lock(500)) return;
-    linepods_ui_show_setup(linepods_network_setup_ssid(),
+    const char *title = mode == LINEPODS_PROVISION_WIFI ? "更新 Wi-Fi"
+                      : mode == LINEPODS_PROVISION_API_KEY ? "更新 API Key"
+                      : "连接 Linepods";
+    linepods_ui_show_setup(title, linepods_network_setup_ssid(),
                          linepods_network_setup_password());
     bsp_lvgl_unlock();
 }
@@ -452,6 +547,15 @@ static void handle_input(const app_event_t *event)
     case LINEPODS_ACTION_SHOW_BOOK_PICKER:
         ui_book_picker();
         break;
+    case LINEPODS_ACTION_SHOW_SETTINGS:
+        ui_settings();
+        break;
+    case LINEPODS_ACTION_SHOW_SETTINGS_VALUE:
+        ui_setting_value();
+        break;
+    case LINEPODS_ACTION_SHOW_SETTINGS_INFO:
+        ui_settings_info();
+        break;
     case LINEPODS_ACTION_SELECT_RANDOM:
         (void)linepods_logic_select_random(&s_logic, esp_random());
         set_card_status("随机");
@@ -474,11 +578,77 @@ static void handle_input(const app_event_t *event)
             ui_error("无法打开这本书的划线");
         }
         break;
-    case LINEPODS_ACTION_SHOW_FONT_COMPARE:
-        if (bsp_lvgl_lock(500)) {
-            linepods_ui_show_font_compare(s_logic.font_compare_index);
-            bsp_lvgl_unlock();
+    case LINEPODS_ACTION_UPDATE_WIFI:
+        if (!s_fetching) start_setup(LINEPODS_PROVISION_WIFI);
+        break;
+    case LINEPODS_ACTION_UPDATE_API_KEY:
+        if (!s_fetching) start_setup(LINEPODS_PROVISION_API_KEY);
+        break;
+    case LINEPODS_ACTION_CLEAR_CONFIG:
+        if (linepods_config_clear() == ESP_OK) {
+            memset(&s_active_config, 0, sizeof(s_active_config));
+            memset(&s_retry_config, 0, sizeof(s_retry_config));
+            set_card_status("连接信息已清除");
+            linepods_logic_set_view(&s_logic, LINEPODS_VIEW_CARD);
+            ui_card();
+        } else {
+            ui_error("无法清除连接信息");
         }
+        break;
+    case LINEPODS_ACTION_CLEAR_CACHE:
+        release_detail();
+        if (linepods_store_clear() == ESP_OK) {
+            (void)linepods_config_clear_reader_state();
+            s_reader_state = (linepods_reader_state_t) {0};
+            s_reader_state_dirty = false;
+            s_content = (linepods_content_t) {0};
+            linepods_logic_set_quotes(&s_logic, 0);
+            s_retry_config = s_active_config;
+            s_retry_is_provisioned = false;
+            ui_error("本地划线已清除。按确定可重新同步。");
+        } else {
+            ui_error("无法清除本地划线缓存");
+        }
+        break;
+    case LINEPODS_ACTION_EDIT_SCREEN_TIMEOUT: {
+        size_t count = sizeof(SCREEN_TIMEOUT_OPTIONS) / sizeof(SCREEN_TIMEOUT_OPTIONS[0]);
+        linepods_logic_open_setting_value(
+            &s_logic, LINEPODS_SETTING_SCREEN_TIMEOUT,
+            option_index(SCREEN_TIMEOUT_OPTIONS, count,
+                         s_preferences.screen_off_seconds), count);
+        ui_setting_value();
+        break;
+    }
+    case LINEPODS_ACTION_EDIT_DEEP_SLEEP: {
+        size_t count = sizeof(DEEP_SLEEP_OPTIONS) / sizeof(DEEP_SLEEP_OPTIONS[0]);
+        linepods_logic_open_setting_value(
+            &s_logic, LINEPODS_SETTING_DEEP_SLEEP,
+            option_index(DEEP_SLEEP_OPTIONS, count,
+                         s_preferences.deep_sleep_minutes), count);
+        ui_setting_value();
+        break;
+    }
+    case LINEPODS_ACTION_SAVE_SCREEN_TIMEOUT:
+        s_preferences.screen_off_seconds =
+            SCREEN_TIMEOUT_OPTIONS[s_logic.settings_value_index];
+        if (linepods_config_save_preferences(&s_preferences) != ESP_OK) {
+            ui_error("无法保存息屏时间");
+            break;
+        }
+        apply_preferences();
+        linepods_power_policy_record_activity(&s_power, now_ms());
+        ui_settings();
+        break;
+    case LINEPODS_ACTION_SAVE_DEEP_SLEEP:
+        s_preferences.deep_sleep_minutes =
+            DEEP_SLEEP_OPTIONS[s_logic.settings_value_index];
+        if (linepods_config_save_preferences(&s_preferences) != ESP_OK) {
+            ui_error("无法保存深睡时间");
+            break;
+        }
+        apply_preferences();
+        linepods_power_policy_record_activity(&s_power, now_ms());
+        ui_settings();
         break;
     case LINEPODS_ACTION_SYNC:
         if (!s_fetching) {
@@ -499,7 +669,7 @@ static void handle_input(const app_event_t *event)
         }
         break;
     case LINEPODS_ACTION_START_SETUP:
-        if (!s_fetching) start_setup();
+        if (!s_fetching) start_setup(LINEPODS_PROVISION_ALL);
         break;
     default:
         break;
@@ -516,7 +686,8 @@ static void handle_event(const app_event_t *event)
         s_activity_pending = true;  /* show the verification progress */
         if (!s_fetching) {
             ui_loading("正在验证 Wi-Fi 和微信读书 Key…");
-            if (start_fetch(&event->data.config, true, false, true) != ESP_OK) {
+            if (start_fetch(&event->data.config, true,
+                            s_content.item_count > 0, true) != ESP_OK) {
                 ui_error("没有足够内存开始验证，请稍后重试");
             }
         }
@@ -685,6 +856,12 @@ static void app_task(void *argument)
 {
     (void)argument;
     linepods_logic_init(&s_logic);
+    esp_err_t preference_error = linepods_config_load_preferences(&s_preferences);
+    if (preference_error != ESP_OK) {
+        ESP_LOGW(TAG, "Cannot load power preferences: %s",
+                 esp_err_to_name(preference_error));
+    }
+    apply_preferences();
     linepods_power_policy_init(&s_power, &s_power_config, now_ms());
     esp_err_t loaded = linepods_config_load(&s_active_config);
     if (loaded == ESP_OK) {

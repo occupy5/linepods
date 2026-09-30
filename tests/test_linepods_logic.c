@@ -94,7 +94,9 @@ static void test_browse_menu_and_book_picker(void)
     assert(logic.view == LINEPODS_VIEW_BROWSE_MENU);
     assert(logic.browse_menu_index == 0);
 
-    assert(linepods_logic_handle(&logic, LINEPODS_INPUT_UP_CLICK)
+    assert(linepods_logic_handle(&logic, LINEPODS_INPUT_DOWN_CLICK)
+           == LINEPODS_ACTION_SHOW_BROWSE_MENU);
+    assert(linepods_logic_handle(&logic, LINEPODS_INPUT_DOWN_CLICK)
            == LINEPODS_ACTION_SHOW_BROWSE_MENU);
     assert(logic.browse_menu_index == 2);
     assert(linepods_logic_handle(&logic, LINEPODS_INPUT_OK_CLICK)
@@ -110,6 +112,65 @@ static void test_browse_menu_and_book_picker(void)
     assert(linepods_logic_handle(&logic, LINEPODS_INPUT_OK_LONG)
            == LINEPODS_ACTION_SHOW_BROWSE_MENU);
     assert(logic.view == LINEPODS_VIEW_BROWSE_MENU);
+}
+
+static void test_settings_navigation_and_confirmations(void)
+{
+    linepods_logic_t logic;
+    linepods_logic_init(&logic);
+    linepods_logic_set_quotes(&logic, 3);
+    assert(linepods_logic_handle(&logic, LINEPODS_INPUT_OK_LONG)
+           == LINEPODS_ACTION_SHOW_SETTINGS);
+    assert(logic.view == LINEPODS_VIEW_SETTINGS);
+
+    assert(linepods_logic_handle(&logic, LINEPODS_INPUT_OK_CLICK)
+           == LINEPODS_ACTION_SHOW_SETTINGS);
+    assert(logic.view == LINEPODS_VIEW_SETTINGS_ITEMS);
+    assert(linepods_logic_handle(&logic, LINEPODS_INPUT_OK_CLICK)
+           == LINEPODS_ACTION_UPDATE_WIFI);
+    assert(linepods_logic_handle(&logic, LINEPODS_INPUT_OK_LONG)
+           == LINEPODS_ACTION_SHOW_SETTINGS);
+    assert(logic.view == LINEPODS_VIEW_SETTINGS);
+
+    logic.settings_index = LINEPODS_SETTINGS_SECTION_DATA;
+    assert(linepods_logic_handle(&logic, LINEPODS_INPUT_OK_CLICK)
+           == LINEPODS_ACTION_SHOW_SETTINGS);
+    assert(linepods_logic_handle(&logic, LINEPODS_INPUT_DOWN_CLICK)
+           == LINEPODS_ACTION_SHOW_SETTINGS);
+    assert(linepods_logic_handle(&logic, LINEPODS_INPUT_OK_CLICK)
+           == LINEPODS_ACTION_SHOW_SETTINGS);
+    assert(logic.view == LINEPODS_VIEW_SETTINGS_CONFIRM);
+    assert(logic.confirm_index == 0);
+    assert(linepods_logic_handle(&logic, LINEPODS_INPUT_DOWN_CLICK)
+           == LINEPODS_ACTION_SHOW_SETTINGS);
+    assert(logic.confirm_index == 1);
+    assert(linepods_logic_handle(&logic, LINEPODS_INPUT_OK_CLICK)
+           == LINEPODS_ACTION_CLEAR_CACHE);
+
+    logic.view = LINEPODS_VIEW_SETTINGS;
+    logic.settings_index = LINEPODS_SETTINGS_SECTION_POWER;
+    assert(linepods_logic_handle(&logic, LINEPODS_INPUT_OK_CLICK)
+           == LINEPODS_ACTION_SHOW_SETTINGS);
+    assert(linepods_logic_handle(&logic, LINEPODS_INPUT_OK_CLICK)
+           == LINEPODS_ACTION_EDIT_SCREEN_TIMEOUT);
+    linepods_logic_open_setting_value(&logic, LINEPODS_SETTING_SCREEN_TIMEOUT,
+                                      1, 4);
+    assert(linepods_logic_handle(&logic, LINEPODS_INPUT_DOWN_CLICK)
+           == LINEPODS_ACTION_SHOW_SETTINGS_VALUE);
+    assert(logic.settings_value_index == 2);
+    assert(linepods_logic_handle(&logic, LINEPODS_INPUT_OK_CLICK)
+           == LINEPODS_ACTION_SAVE_SCREEN_TIMEOUT);
+    assert(logic.view == LINEPODS_VIEW_SETTINGS_ITEMS);
+
+    logic.view = LINEPODS_VIEW_SETTINGS;
+    logic.settings_index = LINEPODS_SETTINGS_SECTION_DATA;
+    assert(linepods_logic_handle(&logic, LINEPODS_INPUT_OK_CLICK)
+           == LINEPODS_ACTION_SHOW_SETTINGS);
+    assert(linepods_logic_handle(&logic, LINEPODS_INPUT_OK_CLICK)
+           == LINEPODS_ACTION_SHOW_SETTINGS_INFO);
+    assert(linepods_logic_handle(&logic, LINEPODS_INPUT_OK_LONG)
+           == LINEPODS_ACTION_SHOW_SETTINGS);
+    assert(logic.view == LINEPODS_VIEW_SETTINGS_ITEMS);
 }
 
 static void test_book_scope_wraps_and_random_avoids_current(void)
@@ -143,7 +204,8 @@ static void test_card_long_press_actions(void)
     assert(linepods_logic_handle(&logic, LINEPODS_INPUT_UP_LONG)
            == LINEPODS_ACTION_SYNC);
     assert(linepods_logic_handle(&logic, LINEPODS_INPUT_OK_LONG)
-           == LINEPODS_ACTION_START_SETUP);
+           == LINEPODS_ACTION_SHOW_SETTINGS);
+    assert(logic.view == LINEPODS_VIEW_SETTINGS);
 }
 
 static void test_utf8_copy_keeps_codepoints_intact(void)
@@ -165,6 +227,7 @@ int main(void)
     test_detail_pages_then_moves_between_quotes();
     test_error_actions();
     test_browse_menu_and_book_picker();
+    test_settings_navigation_and_confirmations();
     test_book_scope_wraps_and_random_avoids_current();
     test_card_long_press_actions();
     test_utf8_copy_keeps_codepoints_intact();

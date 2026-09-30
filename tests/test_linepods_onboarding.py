@@ -35,10 +35,18 @@ def main() -> None:
     for text in (
         '打开微信读书 App',
         '我 → 设置 → 微信读书技能 → 获取 API Key',
-        '连接并同步划线',
+        '验证并同步划线',
         '配置已提交',
+        '更新 Wi-Fi',
+        'API Key 会保持不变',
+        '更新 API Key',
+        'Wi-Fi 会保持不变',
     ):
         assert text in network
+
+    assert 'linepods_config_t config = s_provision_base;' in network
+    assert 's_provision_mode != LINEPODS_PROVISION_API_KEY' in network
+    assert 's_provision_mode != LINEPODS_PROVISION_WIFI' in network
 
     assert 'background:#fff' in network
     assert 'background:#e9e8e1' not in network

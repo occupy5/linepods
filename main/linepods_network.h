@@ -8,6 +8,12 @@
 typedef bool (*linepods_provision_callback_t)(const linepods_config_t *config,
                                              void *user);
 
+typedef enum {
+    LINEPODS_PROVISION_ALL = 0,
+    LINEPODS_PROVISION_WIFI,
+    LINEPODS_PROVISION_API_KEY,
+} linepods_provision_mode_t;
+
 esp_err_t linepods_network_init(void);
 esp_err_t linepods_network_connect(const linepods_config_t *config,
                                  int timeout_ms);
@@ -19,7 +25,9 @@ bool linepods_network_is_provisioning(void);
 void linepods_network_format_connect_error(esp_err_t error,
                                          char *destination, size_t capacity);
 esp_err_t linepods_network_start_provisioning(linepods_provision_callback_t callback,
-                                             void *user);
+                                             void *user,
+                                             linepods_provision_mode_t mode,
+                                             const linepods_config_t *current);
 void linepods_network_stop_provisioning(void);
 const char *linepods_network_setup_ssid(void);
 const char *linepods_network_setup_password(void);

@@ -11,6 +11,13 @@ typedef struct {
     size_t item_count;
 } linepods_book_range_t;
 
+typedef struct {
+    size_t total_bytes;
+    size_t used_bytes;
+    size_t item_count;
+    size_t book_count;
+} linepods_store_info_t;
+
 esp_err_t linepods_store_init(void);
 esp_err_t linepods_store_sync_begin(void);
 esp_err_t linepods_store_sync_add_book(const linepods_book_t *book);
@@ -30,3 +37,5 @@ esp_err_t linepods_store_find_book(const char *book_id,
 esp_err_t linepods_store_find_quote(const char *quote_id, size_t *item_index);
 esp_err_t linepods_store_read_text(size_t item_index, char **text,
                                  size_t *length);
+esp_err_t linepods_store_get_info(linepods_store_info_t *info);
+esp_err_t linepods_store_clear(void);
