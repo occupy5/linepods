@@ -55,6 +55,8 @@ def main() -> None:
     assert 'API Key 无效或已过期' in client
     assert '请求有些频繁' in client
     assert '微信读书服务暂时不可用' in client
+    assert '#define LINEPODS_SKILL_VERSION "1.0.5"' in client
+    assert '"1.0.4"' not in client
     print("Linepods onboarding contracts: PASS")
 
 

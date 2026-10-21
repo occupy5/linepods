@@ -14,7 +14,7 @@
 #include <string.h>
 
 #define LINEPODS_GATEWAY_URL "https://i.weread.qq.com/api/agent/gateway"
-#define LINEPODS_SKILL_VERSION "1.0.4"
+#define LINEPODS_SKILL_VERSION "1.0.5"
 #define NOTEBOOK_RESPONSE_MAX (24 * 1024)
 #define HIGHLIGHT_RESPONSE_MAX (64 * 1024)
 /* Keep one notebook page small enough that cJSON can build the reply tree
